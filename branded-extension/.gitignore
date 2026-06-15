@@ -1,0 +1,11 @@
+node_modules/
+build/
+release/
+coverage/
+dist/
+*.zip
+.DS_Store
+*.log
+.vite/
+tsconfig.tsbuildinfo
+*.tsbuildinfo

@@ -1,0 +1,83 @@
+{
+  "manifest_version": 3,
+  "name": "Acme Verify",
+  "version": "0.1.0",
+  "description": "Securely verify your payments with privacy-preserving proofs — no passwords or screenshots leave your device.",
+  "icons": {
+    "16": "icon-16.png",
+    "32": "icon-32.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
+  },
+  "action": {
+    "default_icon": "icon-48.png",
+    "default_title": "Acme Verify",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.bundle.js",
+    "type": "module"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; frame-ancestors 'none';"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.example-bank.com/*",
+        "https://*.example-wallet.com/*",
+        "https://*.example-pay.com/*"
+      ],
+      "all_frames": false,
+      "js": [
+        "txClickGuideLoader.bundle.js"
+      ]
+    },
+    {
+      "matches": [
+        "https://app.acme-verify.example/*",
+        "http://localhost/*"
+      ],
+      "all_frames": false,
+      "js": [
+        "contentScriptLoader.bundle.js"
+      ]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "contentScript.bundle.js",
+        "txClickGuide.bundle.js",
+        "*.chunk*.js",
+        "icon-16.png",
+        "icon-32.png",
+        "icon-48.png",
+        "icon-128.png",
+        "injectScript.bundle.js"
+      ],
+      "matches": [
+        "https://*.example-bank.com/*",
+        "https://*.example-wallet.com/*",
+        "https://*.example-pay.com/*",
+        "https://app.acme-verify.example/*",
+        "http://localhost/*"
+      ]
+    }
+  ],
+  "host_permissions": [
+    "https://*.example-bank.com/*",
+    "https://*.example-wallet.com/*",
+    "https://*.example-pay.com/*",
+    "https://app.acme-verify.example/*",
+    "http://localhost/*",
+    "https://api.zkp2p.xyz/*",
+    "https://attestation-service.zkp2p.xyz/*"
+  ],
+  "permissions": [
+    "offscreen",
+    "webRequest",
+    "tabs",
+    "scripting"
+  ]
+}

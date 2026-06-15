@@ -1,0 +1,27 @@
+{
+  "name": "Acme Verify",
+  "shortName": "Acme Verify",
+  "description": "Securely verify your payments with privacy-preserving proofs — no passwords or screenshots leave your device.",
+  "vendorId": "acme-verify",
+  "theme": {
+    "brand": "#4f46e5",
+    "brandContrast": "#ffffff",
+    "accent": "#06b6d4",
+    "background": "#0b0b12",
+    "surface": "#15151f",
+    "text": "#f5f5fa",
+    "muted": "#a1a1b5"
+  },
+  "iconDir": "icons",
+  "hostDomains": [
+    "https://*.example-bank.com/*",
+    "https://*.example-wallet.com/*",
+    "https://*.example-pay.com/*"
+  ],
+  "appOrigins": [
+    "https://app.acme-verify.example/*",
+    "http://localhost/*"
+  ],
+  "attestationServiceUrl": "https://attestation-service.zkp2p.xyz",
+  "apiBaseUrl": "https://api.zkp2p.xyz"
+}
