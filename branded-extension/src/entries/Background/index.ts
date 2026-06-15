@@ -45,6 +45,7 @@ import {
   updateSpinnerToGreenAndStatic,
 } from './authTabOverlay';
 import { isProviderContextRequest } from './providerRequestMatcher';
+import { installContentScriptsInExistingTabs } from './installBackfill';
 
 type RuntimeMessage = ContentToBackgroundMessageType | OffscreenToBackgroundMessageType;
 type SendResponse = (response?: unknown) => void;
@@ -404,17 +405,5 @@ chrome.runtime.onInstalled.addListener((details) => {
     return;
   }
 
-  chrome.tabs.query({ url: ['https://*/*', 'http://localhost/*'] }, (tabs) => {
-    tabs.forEach((tab) => {
-      if (!tab.id) return;
-      chrome.scripting
-        .executeScript({
-          target: { tabId: tab.id },
-          files: ['txClickGuideLoader.bundle.js', 'contentScriptLoader.bundle.js'],
-        })
-        .catch((error) => {
-          logger.warn(`[Background] Failed to inject content loaders into tab ${tab.id}`, error);
-        });
-    });
-  });
+  installContentScriptsInExistingTabs();
 });

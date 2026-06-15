@@ -1,8 +1,7 @@
 # Publishing to the Chrome Web Store
 
-A practical checklist for shipping your rebranded extension. This covers
-packaging and the listing; it is not legal advice — you are the publisher and
-own the store account, privacy policy, and data claims.
+A checklist for shipping your rebranded extension. This covers packaging and the
+listing. You own the store account, privacy policy, and data claims.
 
 ## 1. Finalize the brand
 
@@ -13,7 +12,7 @@ npm run typecheck && npm run test
 ```
 
 Bump the version in `package.json` (the build stamps it into the manifest).
-Versions must be increasing dotted integers, e.g. `1.0.0` → `1.0.1`.
+Versions must be increasing dotted integers, e.g. `1.0.0` to `1.0.1`.
 
 ## 2. Build and package
 
@@ -39,7 +38,7 @@ Use the templates in [`../templates/`](../templates/) as starting points:
 - `permission-justifications.md` — paste these into the dashboard's permission
   justification fields.
 
-Assets you'll need to produce (not included — they're brand-specific):
+Assets you'll need to produce:
 
 | Asset | Spec |
 | --- | --- |
@@ -47,7 +46,7 @@ Assets you'll need to produce (not included — they're brand-specific):
 | Screenshots | 1280×800 or 640×400 PNG, at least one |
 | Small promo tile | 440×280 PNG (optional but recommended) |
 
-## 4. Permissions review — be ready to justify
+## 4. Permissions review
 
 Reviewers will ask why you need each permission. The honest answers:
 
@@ -62,8 +61,8 @@ Reviewers will ask why you need each permission. The honest answers:
   origins, and the API + attestation endpoints. See
   [`host-permissions.md`](host-permissions.md).
 
-Extensions with narrow, explained permissions clear review fastest. If you kept
-this kit's defaults narrow, this step is easy.
+Keep permissions narrow and explain each one in the dashboard. If you add a
+host, update the justification before submitting.
 
 ## 5. Data disclosures
 
@@ -76,7 +75,7 @@ In the dashboard's privacy section, the truthful posture for this kit:
   used for tracking.
 - The extension uses **no analytics or telemetry**.
 
-Make sure these statements match what you actually ship — see
+Make sure these statements match what you actually ship. See
 [`security-invariants.md`](security-invariants.md). If you add any data flow,
 update the disclosures and the privacy policy.
 

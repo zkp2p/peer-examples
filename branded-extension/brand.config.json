@@ -1,7 +1,7 @@
 {
   "name": "Acme Verify",
   "shortName": "Acme Verify",
-  "description": "Securely verify your payments with privacy-preserving proofs — no passwords or screenshots leave your device.",
+  "description": "Verify payments with privacy-preserving proofs. Passwords and screenshots stay on your device.",
   "vendorId": "acme-verify",
   "theme": {
     "brand": "#4f46e5",

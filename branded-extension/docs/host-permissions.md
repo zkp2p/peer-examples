@@ -1,10 +1,9 @@
 # Host permissions: how to narrow them, and why
 
-Manifest V3 store review punishes broad host permissions. An extension that
-requests `https://*/*` will be slow to approve, flagged for justification, and
-scary in the install dialog ("read and change all your data on all websites").
-This kit is built to request **only the domains you actually need**, and to
-derive them from one config file.
+Manifest V3 store review scrutinizes broad host permissions. An extension that
+requests `https://*/*` needs heavier justification and shows a broader install
+warning. This kit requests **only the domains you actually need**, derived from
+one config file.
 
 ## The three buckets
 
@@ -15,7 +14,7 @@ and `rebrand` assembles them into the manifest:
 | --- | --- | --- |
 | `hostDomains` | `https://*.example-bank.com/*` | Payment-platform sites where the **capture click-guide** runs during an auth flow. Content script: `txClickGuideLoader` only. |
 | `appOrigins` | `https://app.acme-verify.example/*` | **Your** web app origins that may use `window.peer`. Content script: `contentScriptLoader` (the full injection). Also auto-approved for connection. |
-| `apiBaseUrl` + `attestationServiceUrl` | `https://api.zkp2p.xyz` | Backend `fetch` targets (provider templates + attestation). Added to `host_permissions` only — no content script. |
+| `apiBaseUrl` + `attestationServiceUrl` | `https://api.zkp2p.xyz` | Backend `fetch` targets (provider templates + attestation). Added to `host_permissions` only; no content script. |
 
 `rebrand` writes them into three manifest sections:
 
@@ -29,7 +28,7 @@ and `rebrand` assembles them into the manifest:
 
 1. **List exact platforms, never `*://*`.** Use one wildcard per platform host
    (`https://*.example-bank.com/*`), not a global match. If you support five
-   payment platforms, that's five entries — and a reviewer can read every one.
+   payment platforms, that's five entries, and a reviewer can read every one.
 2. **`window.peer` belongs only on your app.** It is injected on `appOrigins`
    only, not on the payment platforms. Payment platforms get the capture
    click-guide and nothing else.
@@ -58,5 +57,5 @@ generated manifest (it will be overwritten on the next rebrand).
 The extension uses the `webRequest` permission to observe the responses that
 carry proof material during an auth run. It observes; it does not block (no
 `webRequestBlocking`). Captured requests are matched against the patterns in the
-active provider config and discarded otherwise — see
+active provider config and discarded otherwise. See
 `entries/Background/providerRequestMatcher.ts`.

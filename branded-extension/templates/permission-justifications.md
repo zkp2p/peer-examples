@@ -1,10 +1,10 @@
 <!--
   Permission justifications for the Chrome Web Store dashboard. Paste each into
-  the matching field. Replace {{PLACEHOLDER}}s. Keep them honest — they must match
+  the matching field. Replace {{PLACEHOLDER}}s. Keep them honest: they must match
   what the Extension actually does (../docs/security-invariants.md).
 -->
 
-# {{EXTENSION_NAME}} — permission justifications
+# {{EXTENSION_NAME}} permission justifications
 
 ## Single purpose
 
@@ -40,12 +40,12 @@ Encryption is performed on-device before any proof material is transmitted.
 
 The Extension requests access only to:
 
-- the payment platforms it supports ({{SUPPORTED_PLATFORMS}}) — to capture proof
+- the payment platforms it supports ({{SUPPORTED_PLATFORMS}}), to capture proof
   material during a verification the user starts;
-- your application origin ({{WEBSITE}}) — where the `window.peer` interface is
+- your application origin ({{WEBSITE}}), where the `window.peer` interface is
   exposed to the page;
 - the API and attestation endpoints ({{API_BASE_URL}}, {{ATTESTATION_SERVICE_URL}})
-  — to fetch verification configuration and submit encrypted proof material.
+  to fetch verification configuration and submit encrypted proof material.
 
 It does not request broad host access (no `<all_urls>`).
 

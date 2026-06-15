@@ -1,6 +1,6 @@
 # Peer Examples
 
-A collection of integration examples for **Peer** — the protocol for
+A collection of integration examples for **Peer**, the protocol for
 privacy-preserving payment verification. Each example is self-contained: clone
 the repo, open the example you need, follow its README.
 
@@ -12,7 +12,7 @@ to build on top of it.
 
 | Example | What it is |
 | --- | --- |
-| [`branded-extension/`](branded-extension/) | A complete, brand-neutral browser extension that injects `window.peer` and runs the payment-capture + verification pipeline. Fork it, edit one config file, and re-skin it into your own branded extension in a few minutes. |
+| [`branded-extension/`](branded-extension/) | A brand-neutral browser extension that injects `window.peer` and runs the payment-capture + verification pipeline. Fork it, edit one config file, and re-skin it into your own extension. |
 
 Each example is a top-level folder with its own README and dependencies; nothing
 at the repo root is shared state. More examples will be added as siblings.

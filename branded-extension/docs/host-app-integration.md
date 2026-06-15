@@ -26,7 +26,7 @@ const installed = document.documentElement.getAttribute('data-peer-injected') ==
 const vendor = document.documentElement.getAttribute('data-peer-vendor'); // e.g. "acme-verify"
 ```
 
-Use `vendor` for analytics/attribution only. **Do not gate functionality on a
+Use `vendor` for host-app attribution only. **Do not gate functionality on a
 specific vendor** — any extension implementing the protocol should work.
 
 ## 2. Connect
@@ -91,7 +91,7 @@ unsubscribe();
 
 ## 4. Pass a COMPLETE inline `providerConfig` (or none)
 
-`providerConfig` is **not merged** with a fetched template — it replaces it. If
+`providerConfig` is **not merged** with a fetched template. It replaces it. If
 you pass a partial object, capture will misbehave because the required fields
 (`authLink`, the `metadata` matchers) will be missing. So either:
 
@@ -101,7 +101,7 @@ you pass a partial object, capture will misbehave because the required fields
   `metadata` block (`platform`, `urlRegex`, and the click-guide fields).
 
 ```ts
-// Minimal shape — every field the run needs must be present.
+// Minimal shape: every field the run needs must be present.
 const providerConfig = {
   authLink: 'https://www.example-bank.com/login',
   metadata: {
@@ -112,7 +112,7 @@ const providerConfig = {
 };
 ```
 
-When in doubt, omit it and rely on the fetched template — that is the path the
+When in doubt, omit it and rely on the fetched template. That is the path the
 extension is tuned for.
 
 ## Result delivery and consent

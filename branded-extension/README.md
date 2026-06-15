@@ -1,12 +1,12 @@
 # Branded Extension
 
-A complete, working browser extension (Chrome/Edge, Manifest V3) for
+A working browser extension (Chrome/Edge, Manifest V3) for
 privacy-preserving payment verification on the **Peer** protocol. It is
 **brand-neutral by design**: all identity lives in one config file, so you can
-fork this and turn it into your own branded extension in a few minutes without
-touching the engine.
+fork this and turn it into your own branded extension without touching the
+engine.
 
-Out of the box it ships as a fictional brand, **"Acme Verify"** — a placeholder
+Out of the box it ships as a fictional brand, **"Acme Verify"**, a placeholder
 you replace with your own.
 
 ## What it does
@@ -21,10 +21,11 @@ The extension injects `window.peer` into your web app, and when the app calls
    service,
 5. returns the verification result to your app via `peer.onMetadataMessage(...)`.
 
-No passwords, cookies, or screenshots leave the device — only the encrypted,
-attested result. See [`docs/concept.md`](docs/concept.md) for the architecture.
+Passwords, cookies, and screenshots stay on the device. The extension returns
+the attested result to your app. See [`docs/concept.md`](docs/concept.md) for
+the architecture.
 
-## Rebrand in ~5 minutes
+## Rebrand
 
 **Prerequisites:** Node 18+ and npm. A Chromium browser for loading the result.
 
@@ -32,7 +33,7 @@ attested result. See [`docs/concept.md`](docs/concept.md) for the architecture.
 # 1. Install
 npm install
 
-# 2. Make it yours — edit one file
+# 2. Make it yours: edit one file
 #    Open brand.config.json and set name, vendorId, theme colors,
 #    hostDomains (the payment platforms you support) and appOrigins
 #    (your web app's domains). Drop your own PNGs into icons/.
@@ -49,7 +50,7 @@ npm run build
 #    → "Load unpacked" → select the build/ folder
 ```
 
-That's it. Re-run `npm run rebrand && npm run build` whenever you change
+Re-run `npm run rebrand && npm run build` whenever you change
 `brand.config.json`. `rebrand` is idempotent — running it without changes is a
 no-op.
 
@@ -65,7 +66,7 @@ no-op.
 | `appOrigins` | Your web app origins that may use `window.peer` (auto-approved, content script injected here) |
 | `apiBaseUrl`, `attestationServiceUrl` | The Peer services the extension talks to (default to the public protocol endpoints) |
 
-Read [`docs/host-permissions.md`](docs/host-permissions.md) before shipping —
+Read [`docs/host-permissions.md`](docs/host-permissions.md) before shipping.
 narrow permissions are what get an extension through store review.
 
 ## Scripts
@@ -106,7 +107,7 @@ branded-extension/
 - [`docs/chrome-web-store.md`](docs/chrome-web-store.md) — packaging + submission.
 - [`docs/host-app-integration.md`](docs/host-app-integration.md) — how your web
   app talks to the extension.
-- [`templates/`](templates/) — fill-in-the-blanks store listing, privacy policy,
+- [`templates/`](templates/) — store listing, privacy policy,
   and permission justifications.
 
 ## License

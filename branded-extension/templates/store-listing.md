@@ -4,7 +4,7 @@
   extension's actual behavior (see ../docs/security-invariants.md).
 -->
 
-# {{EXTENSION_NAME}} — Chrome Web Store listing
+# {{EXTENSION_NAME}} Chrome Web Store listing
 
 ## Name (≤ 45 chars)
 
@@ -27,7 +27,7 @@ your banking login or sharing screenshots.
 When {{WEBSITE}} asks you to verify a payment, {{EXTENSION_NAME}} opens your
 payment provider, helps you find the right transaction, and creates a
 privacy-preserving proof on your own device. Only the encrypted, verified result
-is shared back with {{WEBSITE}} — your credentials never leave your browser.
+is shared back with {{WEBSITE}}. Your credentials never leave your browser.
 
 **Why it's safe**
 

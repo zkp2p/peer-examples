@@ -4,9 +4,8 @@ These are the properties that make this extension safe to install and to ship.
 Rebranding **must not** break any of them. Treat this list as a review checklist
 before every release.
 
-If you find yourself wanting to change something here to add a feature, stop and
-reconsider — almost everything users and reviewers trust about a
-payment-verification extension is on this page.
+If you want to change something here to add a feature, stop and reconsider. This
+page covers the properties users and reviewers rely on.
 
 ## Do not touch: capture & encryption internals
 
@@ -33,7 +32,7 @@ deliberately extending the protocol.
   or the run finishes, the session is deleted (`cleanupSession`).
 - There is **no `storage` permission** and the code uses **no `chrome.storage`,
   `localStorage`, `sessionStorage`, or `indexedDB`.** Nothing about a run
-  survives a browser restart. Keep it that way — persisting captured material or
+  survives a browser restart. Keep it that way; persisting captured material or
   credentials would turn a transient capture into a stored secret.
 
 ## No stored secrets, no keys
@@ -50,12 +49,13 @@ deliberately extending the protocol.
 - The extension ships **no analytics, tracking, or telemetry.** `logger` only
   writes to the console, and only in development builds.
 - The `data-peer-vendor` page attribute exists so your *host app* can record
-  which extension served a session — it is set on the page, not phoned home by
+  which extension served a session. It is set on the page, not phoned home by
   the extension.
 - The only network calls the extension makes are: fetching the **provider
-  template** from your API, and **replaying the captured request** to produce
-  proof material. There is no third endpoint. If you add one, it is on you to
-  justify it in your privacy policy and store listing.
+  template** from your API, **replaying the captured request** when a provider
+  flow requires it, and submitting encrypted proof material to the attestation
+  service. If you add another endpoint, justify it in your privacy policy and
+  store listing.
 
 ## Permissions stay minimal
 
@@ -63,7 +63,7 @@ deliberately extending the protocol.
   `scripting`. Don't add `storage`, `cookies`, `<all_urls>`, `webRequestBlocking`,
   `declarativeNetRequest`, or `nativeMessaging` without a concrete, reviewable
   reason.
-- Host permissions are narrowed to your configured domains — see
+- Host permissions are narrowed to your configured domains. See
   [`host-permissions.md`](host-permissions.md).
 
 ## The protocol surface is fixed

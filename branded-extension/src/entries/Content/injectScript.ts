@@ -183,7 +183,7 @@ interface IPeer {
 
   // Coexistence policy: defer-if-present. window.peer is a shared protocol
   // global (like window.ethereum). If another extension already defined it,
-  // yield — both implement the same protocol, so the page works either way.
+  // yield; both implement the same protocol, so the page works either way.
   if (!window.hasOwnProperty('peer')) {
     Object.defineProperty(window, 'peer', {
       value: peer,
@@ -191,8 +191,8 @@ interface IPeer {
       configurable: false,
     });
 
-    // Vendor marker so host pages can attribute which window.peer implementation
-    // served a session (useful as an analytics dimension).
+    // Vendor marker so host pages can record which implementation served a
+    // session.
     document.documentElement.setAttribute('data-peer-vendor', BRAND.vendorId);
 
     window.dispatchEvent(new Event('peer#initialized'));

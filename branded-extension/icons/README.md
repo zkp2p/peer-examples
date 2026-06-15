@@ -15,7 +15,7 @@ Guidelines:
 
 - **Square, transparent PNG.** Keep the artwork inside the canvas with a little
   padding so it is not clipped when Chrome rounds the corners.
-- **Provide all four sizes.** Don't upscale a small icon — export each size from
+- **Provide all four sizes.** Don't upscale a small icon; export each size from
   a vector source for crisp edges.
 - **128×128 is the most visible** (store listing + install dialog); make it the
   cleanest.

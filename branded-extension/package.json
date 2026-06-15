@@ -20,6 +20,11 @@
     "jsonpath-plus": "^10.4.0",
     "viem": "^2.37.3"
   },
+  "overrides": {
+    "ethers": {
+      "ws": "8.20.1"
+    }
+  },
   "devDependencies": {
     "@types/chrome": "^0.0.202",
     "@types/node": "^20.4.10",
