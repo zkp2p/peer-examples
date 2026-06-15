@@ -14,16 +14,8 @@ to build on top of it.
 | --- | --- |
 | [`branded-extension/`](branded-extension/) | A complete, brand-neutral browser extension that injects `window.peer` and runs the payment-capture + verification pipeline. Fork it, edit one config file, and re-skin it into your own branded extension in a few minutes. |
 
-## Coming next
-
-More examples will land alongside `branded-extension/` as siblings, e.g.:
-
-- **`host-app-integration/`** — a minimal web app that detects `window.peer` and
-  drives an `authenticate()` → `onMetadataMessage()` verification flow.
-- **`sdk-usage/`** — server- and client-side use of the Peer SDK.
-
-Each new example is a top-level folder with its own README and dependencies;
-nothing at the repo root is shared state.
+Each example is a top-level folder with its own README and dependencies; nothing
+at the repo root is shared state. More examples will be added as siblings.
 
 ## License
 
