@@ -4,9 +4,9 @@ A collection of integration examples for **Peer**, the protocol for
 privacy-preserving payment verification. Each example is self-contained: clone
 the repo, open the example you need, follow its README.
 
-`window.peer` is the protocol's page-level global (the same way `window.ethereum`
-is for wallets). These examples show how to ship it, how to talk to it, and how
-to build on top of it.
+`window.peer` is the protocol's page-level global for payment verification.
+These examples show how to ship it, how to talk to it, and how to build on top
+of it.
 
 ## Examples
 

@@ -1,7 +1,7 @@
 {
   "name": "Acme Verify",
   "shortName": "Acme Verify",
-  "description": "Verify payments with privacy-preserving proofs. Passwords and screenshots stay on your device.",
+  "description": "Verify payments without sharing passwords or screenshots.",
   "vendorId": "acme-verify",
   "theme": {
     "brand": "#4f46e5",
@@ -15,7 +15,7 @@
   "iconDir": "icons",
   "hostDomains": [
     "https://*.example-bank.com/*",
-    "https://*.example-wallet.com/*",
+    "https://*.example-payments.com/*",
     "https://*.example-pay.com/*"
   ],
   "appOrigins": [

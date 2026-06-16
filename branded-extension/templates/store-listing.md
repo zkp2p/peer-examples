@@ -26,8 +26,8 @@ your banking login or sharing screenshots.
 
 When {{WEBSITE}} asks you to verify a payment, {{EXTENSION_NAME}} opens your
 payment provider, helps you find the right transaction, and creates a
-privacy-preserving proof on your own device. Only the encrypted, verified result
-is shared back with {{WEBSITE}}. Your credentials never leave your browser.
+encrypted verification payload on your own device. Only the verified result is
+shared back with {{WEBSITE}}. Your credentials never leave your browser.
 
 **Why it's safe**
 
@@ -40,7 +40,7 @@ is shared back with {{WEBSITE}}. Your credentials never leave your browser.
 
 1. {{WEBSITE}} asks you to verify a payment.
 2. {{EXTENSION_NAME}} opens your payment provider in a new tab.
-3. You confirm the transaction; the extension captures and encrypts the proof.
+3. You confirm the transaction; the extension captures and encrypts the session material.
 4. The verified result is returned to {{WEBSITE}}.
 
 Built on the open Peer protocol for privacy-preserving payment verification.

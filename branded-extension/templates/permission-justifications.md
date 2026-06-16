@@ -9,7 +9,7 @@
 ## Single purpose
 
 {{EXTENSION_NAME}} has one purpose: to let a user prove a payment to
-{{WEBSITE}} in a privacy-preserving way, by capturing and encrypting proof
+{{WEBSITE}} in a privacy-preserving way, by capturing and encrypting session
 material on the user's device and returning only the verification result.
 
 ## `webRequest`
@@ -33,26 +33,27 @@ verification run.
 
 ## `offscreen`
 
-Used to run encryption and proof bundling in a DOM-less offscreen document.
-Encryption is performed on-device before any proof material is transmitted.
+Used to run capture encryption and credential bundling in a DOM-less offscreen
+document. Encryption is performed on-device before any session material is
+transmitted.
 
 ## Host permissions
 
 The Extension requests access only to:
 
-- the payment platforms it supports ({{SUPPORTED_PLATFORMS}}), to capture proof
+- the payment platforms it supports ({{SUPPORTED_PLATFORMS}}), to capture session
   material during a verification the user starts;
 - your application origin ({{WEBSITE}}), where the `window.peer` interface is
   exposed to the page;
 - the API and attestation endpoints ({{API_BASE_URL}}, {{ATTESTATION_SERVICE_URL}})
-  to fetch verification configuration and submit encrypted proof material.
+  to fetch verification configuration and submit encrypted session material.
 
 It does not request broad host access (no `<all_urls>`).
 
 ## Remote code
 
 The Extension executes **no remote code**. All logic is bundled in the package.
-It fetches provider configuration data (JSON) and submits encrypted proof
+It fetches provider configuration data (JSON) and submits encrypted session
 material, but never loads or evaluates external scripts.
 
 ## Data usage certification

@@ -159,7 +159,7 @@ export interface Brand {
   vendorId: string;
   /** Base URL of the Peer API (provider templates live under /providers/). */
   apiBaseUrl: string;
-  /** Base URL of the attestation service that issues proofs. */
+  /** Base URL of the attestation service that verifies encrypted captures. */
   attestationServiceUrl: string;
   /** Derived: \`\${apiBaseUrl}/providers/\`. */
   providerTemplateApiRoot: string;

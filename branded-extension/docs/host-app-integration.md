@@ -84,7 +84,7 @@ unsubscribe();
 | --- | --- | --- |
 | `platform` | `string` | Payment platform key. Required. |
 | `actionType` | `string` | Provider action key. Required. |
-| `captureMode` | `'buyerTee' \| 'sellerCredential'` | Which proof pipeline to run. |
+| `captureMode` | `'buyerTee' \| 'sellerCredential'` | Which encrypted capture pipeline to run. |
 | `attestationServiceUrl` | `string \| null` | Defaults to the extension's configured attestation service. |
 | `attestationActionType` | `string \| null` | Optional override for the attested action. |
 | `providerConfig` | `ProviderSettings` | Optional. **If you pass it, pass a complete config** (see next section). If omitted, the extension fetches one from `${apiBaseUrl}/providers/<platform>/<actionType>.json`. |
@@ -122,7 +122,7 @@ extension is tuned for.
 - For requests the user must explicitly approve, the extension shows an in-page
   confirmation before the result is shared with your page. A rejection arrives as
   a `data.errorMessage`, not a thrown error.
-- `metadata` is an array of payment rows; the proof payloads you submit to your
+- `metadata` is an array of payment rows; the encrypted capture payloads you submit to your
   backend are in `buyerTeeCapture` / `sarCredentialCapture` depending on
   `captureMode`.
 

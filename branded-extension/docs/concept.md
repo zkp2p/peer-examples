@@ -1,9 +1,9 @@
 # Concept: the `window.peer` interface
 
 This extension puts one object on the page: `window.peer`. It is the
-**protocol global** for privacy-preserving payment verification, analogous to
-`window.ethereum` for wallets. Any web page can feature-detect it and drive a
-verification flow without knowing which branded extension is installed.
+**protocol global** for privacy-preserving payment verification. Any web page
+can feature-detect it and drive a verification flow without knowing which
+branded extension is installed.
 
 ## The interface
 
@@ -60,7 +60,7 @@ branding is injected from `brand.config.json` at the edges only.
 | **Injected script** (page MAIN world) | `entries/Content/injectScript.ts` | Defines `window.peer`, relays page ⇄ content messages over `window.postMessage`. |
 | **Content script** (isolated world) | `entries/Content/index.ts`, `connectionApproval.ts`, `approvalPopup.ts` | Injects the page script, shows the connect/confirm approval UI, bridges page ⇄ background. |
 | **Background** (service worker) | `entries/Background/*` | Opens the auth tab, intercepts the right network requests (`webRequest`), runs the capture flows, drives the in-tab auth overlay. |
-| **Offscreen** (DOM-less document) | `entries/Offscreen/*` | Does the encryption / proof bundling that needs DOM crypto APIs but no UI. |
+| **Offscreen** (DOM-less document) | `entries/Offscreen/*` | Does capture encryption and credential bundling that need DOM crypto APIs but no UI. |
 
 The shared **capture/metadata engine** lives in `utils/` (`metadataEngine.ts`,
 `offscreenHelpers.ts`, `buyerTeePaymentCapture.ts`, `sarCredentialBundle.ts`,
@@ -82,7 +82,7 @@ typed message channels under `utils/types/messages/`).
 
 ## Two capture modes
 
-`captureMode` selects how proof material is produced:
+`captureMode` selects which encrypted capture payload is produced:
 
 - **`buyerTee`** — TEE session-material capture for a buyer-side payment.
 - **`sellerCredential`** — seller-credential bundle capture.

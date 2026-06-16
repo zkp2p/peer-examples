@@ -9,8 +9,8 @@ page covers the properties users and reviewers rely on.
 
 ## Do not touch: capture & encryption internals
 
-The proof pipeline is the security boundary. Leave it alone unless you are
-deliberately extending the protocol.
+The capture-and-encryption pipeline is the security boundary. Leave it alone
+unless you are deliberately extending the protocol.
 
 - **Encryption happens in the offscreen document** (`entries/Offscreen/*`) using
   the Peer SDK. Captured material is encrypted before it leaves the device. Do
@@ -53,7 +53,7 @@ deliberately extending the protocol.
   the extension.
 - The only network calls the extension makes are: fetching the **provider
   template** from your API, **replaying the captured request** when a provider
-  flow requires it, and submitting encrypted proof material to the attestation
+  flow requires it, and submitting encrypted session material to the attestation
   service. If you add another endpoint, justify it in your privacy policy and
   store listing.
 

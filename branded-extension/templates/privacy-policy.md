@@ -19,7 +19,7 @@ your data.
 
 The Extension helps you prove a payment to {{WEBSITE}} without sharing your
 banking credentials. It processes payment data **locally on your device**,
-encrypts the proof material before transmission, and shares only the resulting
+encrypts the session material before transmission, and shares only the resulting
 verification with {{WEBSITE}}. We do not sell your data and we do not track you.
 
 ## What the Extension accesses
@@ -28,7 +28,7 @@ To verify a payment you initiate, the Extension:
 
 - Opens your payment provider in a browser tab and observes the specific network
   responses that contain the transaction you are verifying.
-- Encrypts the relevant proof material **on your device** before any
+- Encrypts the relevant session material **on your device** before any
   transmission.
 - Submits the encrypted material to the attestation service at
   {{ATTESTATION_SERVICE_URL}} to produce a verification result.
@@ -50,7 +50,7 @@ The Extension only runs this process on the sites it supports
 
 ## Data we transmit
 
-The only data the Extension transmits is the **encrypted proof material** needed
+The only data the Extension transmits is the **encrypted session material** needed
 to produce a verification, sent to {{ATTESTATION_SERVICE_URL}}, and the resulting
 verification shared with {{WEBSITE}}. No other endpoints receive your data.
 

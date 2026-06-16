@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Acme Verify",
   "version": "0.1.0",
-  "description": "Verify payments with privacy-preserving proofs. Passwords and screenshots stay on your device.",
+  "description": "Verify payments without sharing passwords or screenshots.",
   "icons": {
     "16": "icon-16.png",
     "32": "icon-32.png",
@@ -25,7 +25,7 @@
     {
       "matches": [
         "https://*.example-bank.com/*",
-        "https://*.example-wallet.com/*",
+        "https://*.example-payments.com/*",
         "https://*.example-pay.com/*"
       ],
       "all_frames": false,
@@ -58,7 +58,7 @@
       ],
       "matches": [
         "https://*.example-bank.com/*",
-        "https://*.example-wallet.com/*",
+        "https://*.example-payments.com/*",
         "https://*.example-pay.com/*",
         "https://app.acme-verify.example/*",
         "http://localhost/*"
@@ -67,7 +67,7 @@
   ],
   "host_permissions": [
     "https://*.example-bank.com/*",
-    "https://*.example-wallet.com/*",
+    "https://*.example-payments.com/*",
     "https://*.example-pay.com/*",
     "https://app.acme-verify.example/*",
     "http://localhost/*",

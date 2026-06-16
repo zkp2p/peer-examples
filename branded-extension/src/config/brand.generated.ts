@@ -30,7 +30,7 @@ export interface Brand {
   vendorId: string;
   /** Base URL of the Peer API (provider templates live under /providers/). */
   apiBaseUrl: string;
-  /** Base URL of the attestation service that issues proofs. */
+  /** Base URL of the attestation service that verifies encrypted captures. */
   attestationServiceUrl: string;
   /** Derived: `${apiBaseUrl}/providers/`. */
   providerTemplateApiRoot: string;
@@ -48,13 +48,13 @@ export const BRAND: Brand = {
   name: "Acme Verify",
   shortName: "Acme Verify",
   description:
-    "Verify payments with privacy-preserving proofs. Passwords and screenshots stay on your device.",
+    "Verify payments without sharing passwords or screenshots.",
   vendorId: "acme-verify",
   apiBaseUrl: "https://api.zkp2p.xyz",
   attestationServiceUrl: "https://attestation-service.zkp2p.xyz",
   providerTemplateApiRoot: "https://api.zkp2p.xyz/providers/",
   webUrl: "https://app.acme-verify.example",
-  hostDomains: ["https://*.example-bank.com/*","https://*.example-wallet.com/*","https://*.example-pay.com/*"],
+  hostDomains: ["https://*.example-bank.com/*","https://*.example-payments.com/*","https://*.example-pay.com/*"],
   appOrigins: ["https://app.acme-verify.example/*","http://localhost/*"],
   theme: {
     brand: "#4f46e5",

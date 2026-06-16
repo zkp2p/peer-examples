@@ -51,12 +51,12 @@ Assets you'll need to produce:
 Reviewers will ask why you need each permission. The honest answers:
 
 - **`webRequest`** — observe (not block) the payment-platform responses that
-  carry proof material during a user-initiated verification.
+  carry payment session material during a user-initiated verification.
 - **`tabs`** — open the payment-platform auth tab and return the user to their
   original tab.
 - **`scripting`** — inject the capture click-guide and the success overlay into
   the auth tab.
-- **`offscreen`** — run the encryption/proof bundling in a DOM-less document.
+- **`offscreen`** — run capture encryption and credential bundling in a DOM-less document.
 - **Host permissions** — only your supported payment platforms, your app
   origins, and the API + attestation endpoints. See
   [`host-permissions.md`](host-permissions.md).
