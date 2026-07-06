@@ -9,7 +9,6 @@ import {
   resolveMetadataPayload,
 } from '@utils/metadataEngine';
 import { logger } from '@utils/logger';
-import { encryptPreparedBuyerTeeSessionMaterial } from './buyerTeeSessionMaterialEncryption';
 import { createSarCredentialBundle } from './sarCredentialBundle';
 
 async function extractMetadata(
@@ -37,6 +36,7 @@ async function extractMetadata(
           ? undefined
           : 'No transactions could be extracted for this page. Open your transaction history or statement view, then retry.',
       metadata,
+      request: payload.request,
       requestId: payload.request.requestId,
       success: true,
     };
@@ -59,20 +59,6 @@ chrome.runtime.onMessage.addListener(
     switch (message.action) {
       case BackgroundToOffscreenAction.EXTRACT_METADATA_OFFSCREEN:
         void extractMetadata(message).then(sendResponse);
-        return true;
-      case BackgroundToOffscreenAction.ENCRYPT_BUYER_TEE_SESSION_MATERIAL_OFFSCREEN:
-        void encryptPreparedBuyerTeeSessionMaterial(message.data)
-          .then((encryptedSessionMaterial) =>
-            sendResponse({ encryptedSessionMaterial, success: true }),
-          )
-          .catch((error) => {
-            logger.error('[Offscreen] Buyer TEE session encryption failed:', error);
-            sendResponse({
-              error:
-                error instanceof Error ? error.message : 'Buyer TEE session encryption failed.',
-              success: false,
-            });
-          });
         return true;
       case BackgroundToOffscreenAction.CREATE_SAR_CREDENTIAL_BUNDLE_OFFSCREEN:
         void createSarCredentialBundle(message.data)

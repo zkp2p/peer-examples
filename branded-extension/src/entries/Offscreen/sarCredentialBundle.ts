@@ -60,6 +60,7 @@ export async function createSarCredentialBundle({
     'Attestation service URL',
   );
   const bundlePayload = {
+    ...(payload.callerAddress ? { callerAddress: payload.callerAddress } : {}),
     payeeId: payload.payeeId,
     sessionMaterial: payload.sessionMaterial,
   } as PayeeBoundSellerCredentialUploadInput;

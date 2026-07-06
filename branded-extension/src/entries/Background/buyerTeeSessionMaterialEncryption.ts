@@ -2,16 +2,16 @@ import {
   createEncryptedBuyerTeeSessionMaterial,
   type BuyerTeeSessionMaterialEncryptionInput,
 } from '@zkp2p/sdk';
-import type {
-  BuyerTeeSessionMaterialEncryptionPayload,
-  BuyerTeeSessionMaterialEncryptionResponse,
-} from '@utils/buyerTeePaymentCapture';
 
 type BuyerTeeAttestationRuntime = NonNullable<
   BuyerTeeSessionMaterialEncryptionInput['attestationRuntime']
 >;
+type BackgroundBuyerTeeSessionMaterialEncryptionInput = Omit<
+  BuyerTeeSessionMaterialEncryptionInput,
+  'attestationRuntime'
+>;
 
-function createBuyerTeeAttestationRuntime(): BuyerTeeAttestationRuntime {
+function createBackgroundAttestationRuntime(): BuyerTeeAttestationRuntime {
   const attestationRuntime: BuyerTeeAttestationRuntime = {};
 
   if (typeof globalThis.fetch === 'function') {
@@ -29,19 +29,19 @@ function createBuyerTeeAttestationRuntime(): BuyerTeeAttestationRuntime {
   return attestationRuntime;
 }
 
-export async function encryptPreparedBuyerTeeSessionMaterial({
-  payload,
-}: {
-  payload: BuyerTeeSessionMaterialEncryptionPayload;
-}): Promise<
-  Extract<BuyerTeeSessionMaterialEncryptionResponse, { success: true }>['encryptedSessionMaterial']
-> {
+export async function encryptBuyerTeeSessionMaterialInBackground({
+  actionType,
+  attestationServiceUrl,
+  platform,
+  sessionMaterial,
+  timeoutMs,
+}: BackgroundBuyerTeeSessionMaterialEncryptionInput): Promise<string> {
   return await createEncryptedBuyerTeeSessionMaterial({
-    actionType: payload.actionType,
-    attestationRuntime: createBuyerTeeAttestationRuntime(),
-    attestationServiceUrl: payload.attestationServiceUrl,
-    platform: payload.platform,
-    sessionMaterial: payload.sessionMaterial,
-    ...(payload.timeoutMs == null ? {} : { timeoutMs: payload.timeoutMs }),
+    actionType,
+    attestationRuntime: createBackgroundAttestationRuntime(),
+    attestationServiceUrl,
+    platform,
+    sessionMaterial,
+    ...(timeoutMs == null ? {} : { timeoutMs }),
   });
 }

@@ -130,6 +130,30 @@ describe('SAR credential capture staging', () => {
     expect(result.errorMessage).toBe('Session capture unavailable. Re-authenticate and try again.');
     expect(createSarCredentialBundleInOffscreenMock).not.toHaveBeenCalled();
   });
+
+  it('forwards caller address into the encrypted credential bundle request', async () => {
+    const ensureOffscreenDocument = vi.fn().mockResolvedValue(undefined);
+    rememberSarCredentialCapture(7, {
+      attestationServiceUrl: 'https://attestation.test',
+      callerAddress: '0x1111111111111111111111111111111111111111',
+      platform: 'venmo',
+    });
+
+    await stageSarCredentialCaptureForMetadata({
+      ensureOffscreenDocument,
+      requestId: 'request-1',
+      tabId: 7,
+    });
+
+    expect(createSarCredentialBundleInOffscreenMock).toHaveBeenCalledWith({
+      attestationServiceUrl: 'https://attestation.test',
+      ensureOffscreenDocument,
+      payload: {
+        ...payload,
+        callerAddress: '0x1111111111111111111111111111111111111111',
+      },
+    });
+  });
 });
 
 describe('resolveSarCredentialCaptureConfig', () => {
@@ -148,12 +172,14 @@ describe('resolveSarCredentialCaptureConfig', () => {
       expect(
         resolveSarCredentialCaptureConfig({
           attestationServiceUrl: 'https://attestation.test/',
+          callerAddress: ' 0x1111111111111111111111111111111111111111 ',
           captureMode: 'sellerCredential',
           platform,
         }),
       ).toEqual({
         config: {
           attestationServiceUrl: 'https://attestation.test',
+          callerAddress: '0x1111111111111111111111111111111111111111',
           platform,
         },
         error: null,

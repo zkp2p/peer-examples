@@ -115,12 +115,26 @@ function resolveReplayTarget(
   return target;
 }
 
+export function buildReplayRequest(
+  fallbackRequest: RequestLog,
+  providerConfig: ProviderSettings,
+): RequestLog {
+  const target = resolveReplayTarget(fallbackRequest, providerConfig);
+
+  return {
+    ...fallbackRequest,
+    method: target.method,
+    requestBody: target.body,
+    url: target.url,
+  };
+}
+
 export async function replayFallback(
   fallbackRequest: RequestLog,
   providerConfig: ProviderSettings,
   responseType: ReplayResponseType = 'json',
 ): Promise<unknown> {
-  const target = resolveReplayTarget(fallbackRequest, providerConfig);
+  const replayRequest = buildReplayRequest(fallbackRequest, providerConfig);
 
   if (providerConfig.metadata.shouldReplayRequestInPage) {
     const response = await safeChromeRuntimeSendMessage<{
@@ -131,12 +145,7 @@ export async function replayFallback(
     }>({
       action: OffscreenToBackgroundAction.REPLAY_REQUEST_BACKGROUND,
       data: {
-        request: {
-          ...fallbackRequest,
-          url: target.url,
-          method: target.method,
-          requestBody: target.body,
-        } as RequestLog,
+        request: replayRequest,
       },
     });
 
@@ -151,15 +160,19 @@ export async function replayFallback(
   }
 
   const options: RequestInit = {
-    method: target.method,
-    headers: headersToMap(fallbackRequest.requestHeaders),
+    method: replayRequest.method,
+    headers: headersToMap(replayRequest.requestHeaders),
   };
 
-  if (target.method !== 'GET' && target.method !== 'HEAD' && target.body) {
-    options.body = target.body;
+  if (
+    replayRequest.method !== 'GET' &&
+    replayRequest.method !== 'HEAD' &&
+    replayRequest.requestBody
+  ) {
+    options.body = replayRequest.requestBody;
   }
 
-  const actualUrl = new URL(target.url);
+  const actualUrl = new URL(replayRequest.url);
   actualUrl.searchParams.append('replay_request', '1');
 
   const resp = await fetch(actualUrl.toString(), options);

@@ -36,6 +36,7 @@ const sdkPayload = {
 
 const payload = {
   ...sdkPayload,
+  callerAddress: '0x1111111111111111111111111111111111111111',
   offchainId: 'seller_user',
   platform: 'venmo',
 } as const;
@@ -61,7 +62,10 @@ describe('createSarCredentialBundle', () => {
     ).resolves.toEqual(bundle);
 
     expect(apiCreateSellerCredentialBundleMock).toHaveBeenCalledWith(
-      sdkPayload,
+      {
+        ...sdkPayload,
+        callerAddress: '0x1111111111111111111111111111111111111111',
+      },
       'https://attestation.test',
       'venmo',
       undefined,

@@ -102,7 +102,7 @@ export default defineConfig(({ command, mode }) => {
         { find: /^worker_threads$/, replacement: workerThreadsShim },
         { find: /^node:worker_threads$/, replacement: workerThreadsShim },
         { find: 'url', replacement: require.resolve('url') },
-        { find: 'net', replacement: require.resolve('net-browserify') },
+        { find: 'net', replacement: emptyShim },
         { find: 'http', replacement: require.resolve('stream-http') },
         { find: 'https', replacement: require.resolve('https-browserify') },
         { find: 'os', replacement: emptyShim },

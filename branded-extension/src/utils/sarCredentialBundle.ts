@@ -7,7 +7,9 @@ import type {
 export type SellerCredentialPlatform = Extract<SellerPlatform, 'cashapp' | 'venmo'>;
 
 export type SellerCredentialUploadPayload = {
-  [P in SellerCredentialPlatform]: Extract<UploadSellerCredentialParams, { platform: P }>;
+  [P in SellerCredentialPlatform]: Extract<UploadSellerCredentialParams, { platform: P }> & {
+    callerAddress?: string;
+  };
 }[SellerCredentialPlatform];
 
 export type SarCredentialBundleOffscreenResponse =
