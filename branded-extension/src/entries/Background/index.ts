@@ -164,9 +164,8 @@ async function sendMetadataToOriginalTab(
 
   const buyerTeeCaptureResult = result.success
     ? await stageBuyerTeeCaptureForMetadata({
-        ensureOffscreenDocument,
         metadata: result.metadata,
-        requestId,
+        request: result.request,
         tabId: session.authTabId,
       })
     : { capture: null, errorMessage: null, metadata: undefined };
@@ -179,6 +178,7 @@ async function sendMetadataToOriginalTab(
       })
     : { capture: null, errorMessage: null };
   const shouldSuppressMetadata = Boolean(
+    buyerTeeCaptureResult.errorMessage ||
     sarCredentialFlowResult.capture || sarCredentialFlowResult.errorMessage,
   );
 
@@ -291,6 +291,7 @@ async function handleOpenNewTabBackground(
 
     const sarCredentialCaptureConfig = resolveSarCredentialCaptureConfig({
       attestationServiceUrl: data.attestationServiceUrl,
+      callerAddress: data.callerAddress,
       captureMode: data.captureMode === 'sellerCredential' ? data.captureMode : undefined,
       platform: data.platform,
     });
@@ -301,6 +302,7 @@ async function handleOpenNewTabBackground(
     const buyerTeeCaptureConfig = resolveBuyerTeeCaptureConfig({
       actionType: data.actionType,
       attestationActionType: data.attestationActionType,
+      attestationPlatform: data.attestationPlatform,
       attestationServiceUrl: data.attestationServiceUrl,
       captureMode: data.captureMode,
       platform: data.platform,

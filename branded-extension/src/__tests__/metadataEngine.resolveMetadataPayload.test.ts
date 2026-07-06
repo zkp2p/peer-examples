@@ -115,7 +115,12 @@ describe('metadataEngine.resolveMetadataPayload', () => {
     expect(payload.bodyJson).toEqual({
       transactions: [{ amount: '99.00', id: 'payment-99' }],
     });
-    expect(payload.request).toBe(request);
+    expect(payload.request).toEqual({
+      ...request,
+      requestBody: '',
+      responseBody: '{"transactions":[{"amount":"99.00","id":"payment-99"}]}',
+      url: 'https://provider.example/api/metadata',
+    });
   });
 
   it('keeps metadataUrl HTML replay as text for XPath extraction', async () => {
@@ -152,7 +157,12 @@ describe('metadataEngine.resolveMetadataPayload', () => {
     expect(payload).toEqual({
       bodyJson: undefined,
       bodyStr: '<html><body>statement</body></html>',
-      request,
+      request: {
+        ...request,
+        requestBody: '',
+        responseBody: '<html><body>statement</body></html>',
+        url: 'https://provider.example/api/statement',
+      },
     });
   });
 

@@ -10,15 +10,9 @@ import type { ProviderSettings } from '@utils/types';
 
 const getRequestLogMock = vi.hoisted(() => vi.fn());
 const prepareBuyerTeeCaptureMaterialMock = vi.hoisted(() => vi.fn());
-const encryptBuyerTeeSessionMaterialInOffscreenMock = vi.hoisted(() => vi.fn());
+const encryptBuyerTeeSessionMaterialInBackgroundMock = vi.hoisted(() => vi.fn());
 const resolveParamExtractionResponseBodyStringMock = vi.hoisted(() => vi.fn());
 const shouldResolveBuyerTeeParamResponseBodyMock = vi.hoisted(() => vi.fn());
-
-vi.mock('./cache', () => ({
-  getCacheByTabId: () => ({
-    get: getRequestLogMock,
-  }),
-}));
 
 vi.mock('./buyerTeeCapture', () => ({
   prepareBuyerTeeCaptureMaterial: (...args: unknown[]) =>
@@ -27,9 +21,9 @@ vi.mock('./buyerTeeCapture', () => ({
     shouldResolveBuyerTeeParamResponseBodyMock(...args),
 }));
 
-vi.mock('./buyerTeeOffscreenEncryption', () => ({
-  encryptBuyerTeeSessionMaterialInOffscreen: (...args: unknown[]) =>
-    encryptBuyerTeeSessionMaterialInOffscreenMock(...args),
+vi.mock('./buyerTeeSessionMaterialEncryption', () => ({
+  encryptBuyerTeeSessionMaterialInBackground: (...args: unknown[]) =>
+    encryptBuyerTeeSessionMaterialInBackgroundMock(...args),
 }));
 
 vi.mock('@utils/metadataEngine', () => ({
@@ -58,7 +52,6 @@ function buildProviderConfig(): ProviderSettings {
 }
 
 describe('buyer TEE capture staging', () => {
-  const ensureOffscreenDocument = vi.fn();
   const providerConfig = buildProviderConfig();
 
   beforeEach(() => {
@@ -77,8 +70,7 @@ describe('buyer TEE capture staging', () => {
     });
     resolveParamExtractionResponseBodyStringMock.mockResolvedValue('metadata-body');
     shouldResolveBuyerTeeParamResponseBodyMock.mockReturnValue(false);
-    encryptBuyerTeeSessionMaterialInOffscreenMock.mockResolvedValue('encrypted-session-material');
-    ensureOffscreenDocument.mockResolvedValue(undefined);
+    encryptBuyerTeeSessionMaterialInBackgroundMock.mockResolvedValue('encrypted-session-material');
   });
 
   it('encrypts the captured buyer TEE session material during metadata interception', async () => {
@@ -90,13 +82,11 @@ describe('buyer TEE capture staging', () => {
     });
 
     const result = await stageBuyerTeeCaptureForMetadata({
-      ensureOffscreenDocument,
       metadata: [{ hidden: false, originalIndex: 1 }],
-      requestId: 'request-1',
+      request: getRequestLogMock(),
       tabId: 7,
     });
 
-    expect(getRequestLogMock).toHaveBeenCalledWith('request-1');
     expect(prepareBuyerTeeCaptureMaterialMock).toHaveBeenCalledWith({
       metadata: [{ hidden: false, originalIndex: 1 }],
       providerConfig,
@@ -104,14 +94,11 @@ describe('buyer TEE capture staging', () => {
         url: 'https://payments.example/api/history?account=123456',
       }),
     });
-    expect(encryptBuyerTeeSessionMaterialInOffscreenMock).toHaveBeenCalledWith({
-      ensureOffscreenDocument,
-      payload: {
-        actionType: 'transfer_sample',
-        attestationServiceUrl: 'https://attestation.test',
-        platform: 'samplepay',
-        sessionMaterial: { Cookie: 'session=abc' },
-      },
+    expect(encryptBuyerTeeSessionMaterialInBackgroundMock).toHaveBeenCalledWith({
+      actionType: 'transfer_sample',
+      attestationServiceUrl: 'https://attestation.test',
+      platform: 'samplepay',
+      sessionMaterial: { Cookie: 'session=abc' },
     });
     expect(result).toEqual({
       capture: {
@@ -142,9 +129,8 @@ describe('buyer TEE capture staging', () => {
     });
 
     await stageBuyerTeeCaptureForMetadata({
-      ensureOffscreenDocument,
       metadata: [{ hidden: false, originalIndex: 1 }],
-      requestId: 'request-1',
+      request: getRequestLogMock(),
       tabId: 7,
     });
 
@@ -185,9 +171,8 @@ describe('buyer TEE capture staging', () => {
     });
 
     const result = await stageBuyerTeeCaptureForMetadata({
-      ensureOffscreenDocument,
       metadata: [{ hidden: false, originalIndex: 8 }],
-      requestId: 'request-1',
+      request: getRequestLogMock(),
       tabId: 7,
     });
 
@@ -261,6 +246,26 @@ describe('resolveBuyerTeeCaptureConfig', () => {
         attestationServiceUrl: 'https://attestation.test/',
         captureMode: 'buyerTee',
         platform: 'paypal',
+      }),
+    ).toEqual({
+      config: {
+        actionType: 'transfer_paypal',
+        attestationServiceUrl: 'https://attestation.test',
+        platform: 'paypal',
+      },
+      error: null,
+    });
+  });
+
+  it('uses the attestation platform when it differs from the provider template platform', () => {
+    expect(
+      resolveBuyerTeeCaptureConfig({
+        actionType: 'transfer_business_paypal',
+        attestationActionType: 'transfer_paypal',
+        attestationPlatform: 'paypal',
+        attestationServiceUrl: 'https://attestation.test/',
+        captureMode: 'buyerTee',
+        platform: 'paypal_business',
       }),
     ).toEqual({
       config: {

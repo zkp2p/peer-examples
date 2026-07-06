@@ -12,12 +12,14 @@ type EnsureOffscreenDocument = () => Promise<void>;
 
 type ResolveSarCredentialCaptureConfigParams = {
   attestationServiceUrl?: string | null;
+  callerAddress?: string | null;
   captureMode?: 'sellerCredential';
   platform?: string;
 };
 
 type SarCredentialCaptureConfig = {
   attestationServiceUrl: string;
+  callerAddress?: string;
   platform: string;
 };
 
@@ -56,6 +58,7 @@ async function toSarCredentialCapture({
 
 export function resolveSarCredentialCaptureConfig({
   attestationServiceUrl,
+  callerAddress,
   captureMode,
   platform,
 }: ResolveSarCredentialCaptureConfigParams): {
@@ -75,10 +78,12 @@ export function resolveSarCredentialCaptureConfig({
 
   const normalizedAttestationServiceUrl =
     normalizeRequiredUrl(attestationServiceUrl) ?? DEFAULT_ATTESTATION_SERVICE_URL;
+  const normalizedCallerAddress = callerAddress?.trim();
 
   return {
     config: {
       attestationServiceUrl: normalizedAttestationServiceUrl,
+      ...(normalizedCallerAddress ? { callerAddress: normalizedCallerAddress } : {}),
       platform,
     },
     error: null,
@@ -141,7 +146,10 @@ export async function stageSarCredentialCaptureForMetadata({
     const capture = await toSarCredentialCapture({
       attestationServiceUrl: captureConfig.attestationServiceUrl,
       ensureOffscreenDocument,
-      payload,
+      payload: {
+        ...payload,
+        ...(captureConfig.callerAddress ? { callerAddress: captureConfig.callerAddress } : {}),
+      },
     });
     return { capture, errorMessage: null };
   } catch (error) {

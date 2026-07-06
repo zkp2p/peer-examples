@@ -4,15 +4,12 @@ import { resolveParamExtractionResponseBodyString } from '@utils/metadataEngine'
 import type { MetadataCaptureMode } from '@utils/metadataCaptureMode';
 import type { MetadataMessageType, ProviderSettings } from '@utils/types';
 
-import { getCacheByTabId } from './cache';
 import type { RequestLog } from './requestLog';
 import {
   prepareBuyerTeeCaptureMaterial,
   shouldResolveBuyerTeeParamResponseBody,
 } from './buyerTeeCapture';
-import { encryptBuyerTeeSessionMaterialInOffscreen } from './buyerTeeOffscreenEncryption';
-
-type EnsureOffscreenDocument = () => Promise<void>;
+import { encryptBuyerTeeSessionMaterialInBackground } from './buyerTeeSessionMaterialEncryption';
 
 type BuyerTeeCaptureConfig = {
   actionType: string;
@@ -34,12 +31,14 @@ const buyerTeeCaptureConfigs = new Map<number, BuyerTeeCaptureConfig>();
 export function resolveBuyerTeeCaptureConfig({
   actionType,
   attestationActionType,
+  attestationPlatform,
   attestationServiceUrl,
   captureMode,
   platform,
 }: {
   actionType?: string;
   attestationActionType?: string | null;
+  attestationPlatform?: string | null;
   attestationServiceUrl?: string | null;
   captureMode?: MetadataCaptureMode;
   platform?: string;
@@ -59,6 +58,7 @@ export function resolveBuyerTeeCaptureConfig({
   }
 
   const resolvedActionType = attestationActionType?.trim() || actionType?.trim();
+  const resolvedPlatform = attestationPlatform?.trim() || platform;
 
   if (!resolvedActionType) {
     return {
@@ -80,7 +80,7 @@ export function resolveBuyerTeeCaptureConfig({
     config: {
       actionType: resolvedActionType,
       attestationServiceUrl: normalizedAttestationServiceUrl,
-      platform,
+      platform: resolvedPlatform,
     },
     error: null,
   };
@@ -99,14 +99,12 @@ export function clearBuyerTeeCapture(tabId: number | null | undefined): void {
 }
 
 export async function stageBuyerTeeCaptureForMetadata({
-  ensureOffscreenDocument,
   metadata,
-  requestId,
+  request,
   tabId,
 }: {
-  ensureOffscreenDocument: EnsureOffscreenDocument;
   metadata?: MetadataMessageType[];
-  requestId?: string;
+  request: RequestLog;
   tabId: number | null | undefined;
 }): Promise<StageBuyerTeeCaptureResult> {
   if (typeof tabId !== 'number') {
@@ -116,21 +114,6 @@ export async function stageBuyerTeeCaptureForMetadata({
   const captureConfig = buyerTeeCaptureConfigs.get(tabId);
   if (!captureConfig) {
     return { capture: null, errorMessage: null };
-  }
-
-  if (!requestId) {
-    return {
-      capture: null,
-      errorMessage: 'Session capture unavailable. Re-authenticate and try again.',
-    };
-  }
-
-  const request = getCacheByTabId(tabId).get(requestId);
-  if (!request) {
-    return {
-      capture: null,
-      errorMessage: 'Session capture unavailable. Re-authenticate and try again.',
-    };
   }
 
   try {
@@ -148,14 +131,11 @@ export async function stageBuyerTeeCaptureForMetadata({
       providerConfig: captureConfig.providerConfig,
       request,
     });
-    const encryptedSessionMaterial = await encryptBuyerTeeSessionMaterialInOffscreen({
-      ensureOffscreenDocument,
-      payload: {
-        actionType: captureConfig.actionType,
-        attestationServiceUrl: captureConfig.attestationServiceUrl,
-        platform: captureConfig.platform,
-        sessionMaterial: captureMaterial.sessionMaterial,
-      },
+    const encryptedSessionMaterial = await encryptBuyerTeeSessionMaterialInBackground({
+      actionType: captureConfig.actionType,
+      attestationServiceUrl: captureConfig.attestationServiceUrl,
+      platform: captureConfig.platform,
+      sessionMaterial: captureMaterial.sessionMaterial,
     });
 
     return {

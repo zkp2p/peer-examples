@@ -14,7 +14,9 @@ export type PageToContentActionType =
 export type OpenNewTabPagePayload = {
   actionType: string;
   attestationActionType?: string | null;
+  attestationPlatform?: string | null;
   attestationServiceUrl?: string | null;
+  callerAddress?: string | null;
   captureMode?: MetadataCaptureMode;
   platform: string;
   providerConfig?: ProviderSettings;

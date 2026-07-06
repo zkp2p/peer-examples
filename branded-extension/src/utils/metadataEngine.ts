@@ -3,6 +3,7 @@ import type { MetadataMessageType, ParamSelector, ProviderSettings } from '@util
 import {
   extractTransactions,
   extractValue,
+  buildReplayRequest,
   findMatchingRequest,
   parseJsonSafely,
   parseRequestBody,
@@ -79,7 +80,10 @@ async function resolveViaReplay(
   const resp = await replayFallback(request, cfg, wantsHtml ? 'text' : 'json');
   const { str: bodyStr, json: bodyJson } = normalizeResponse(resp);
   return {
-    request,
+    request: {
+      ...buildReplayRequest(request, cfg),
+      responseBody: bodyStr,
+    },
     bodyStr,
     bodyJson,
   };
