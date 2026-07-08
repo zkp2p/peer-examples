@@ -288,10 +288,13 @@ function App() {
     await run('estimate', async () => {
       const next = await cash.estimate({ amount: usdc(amount), currency });
       setEstimate(next);
-      setNotice({
-        kind: next.stale ? 'warning' : 'success',
-        text: `Approximate receive amount: ${formatNumber(next.receiveAmount, currency)}.`,
-      });
+      // The Oracle estimate strip already shows the amount; only surface a
+      // notice when the oracle read is stale, which is genuinely new signal.
+      setNotice(
+        next.stale
+          ? { kind: 'warning', text: 'Oracle rate may be stale. Estimate again for a fresh read.' }
+          : { kind: 'neutral', text: '' },
+      );
     });
   }
 
