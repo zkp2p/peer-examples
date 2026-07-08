@@ -376,6 +376,7 @@ function App() {
               <span>Cash out</span> <span>USDC</span>
             </h1>
           </div>
+          <div className="ignite-rule" />
           <p>Enter amount and payee. Peer handles matching and proof.</p>
         </div>
       </section>

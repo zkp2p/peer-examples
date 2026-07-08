@@ -45,6 +45,7 @@
   --peer-error: #ff4040;
   --peer-link: #1f95e2;
   --peer-gradient: linear-gradient(270deg, #ffe500 0%, #ff3a33 100%);
+  --peer-gradient-text: linear-gradient(90deg, #ffe500 0%, #ff3a33 100%);
 }
 
 * {
@@ -85,9 +86,9 @@ button {
 input,
 select {
   width: 100%;
-  min-height: 38px;
+  min-height: 40px;
   border: 1px solid transparent;
-  border-radius: 9px;
+  border-radius: 10px;
   background: var(--peer-black);
   color: var(--peer-white);
   padding: 0 14px;
@@ -171,6 +172,14 @@ dd {
   text-transform: uppercase;
 }
 
+/* IGNITE gradient rule — the signature Peer accent (mirrors the landing). */
+.ignite-rule {
+  width: 64px;
+  height: 3px;
+  margin-top: 18px;
+  background: var(--peer-gradient-text);
+}
+
 h1 {
   font-family: 'PP Valve', 'Inter', system-ui, sans-serif;
   font-weight: 600;
@@ -224,7 +233,7 @@ h2 {
   border: 1px solid var(--peer-border);
   border-radius: 24px;
   background: var(--peer-rich-black);
-  padding: 22px;
+  padding: 24px;
 }
 
 .create-panel,
@@ -277,13 +286,13 @@ h2 {
 }
 
 .button {
-  min-height: 38px;
+  min-height: 40px;
   border-radius: 10px;
   padding: 0 16px;
   cursor: pointer;
   font-size: 0.88rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   transition:
     transform 0.15s ease,
@@ -641,7 +650,7 @@ h2 {
   }
 
   .panel {
-    border-radius: 18px;
+    border-radius: 16px;
     padding: 16px;
   }
 
