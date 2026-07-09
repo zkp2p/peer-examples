@@ -1,16 +1,19 @@
 # Peer Cash React Demo
 
 Small Vite app that shows the maker-side Peer Cash loop with the published
-`@zkp2p/cash` package:
+`@zkp2p/cash@0.1.3` package:
 
 1. Connect an injected wallet on Base.
-2. Estimate an indicative fiat receive amount from the live oracle (final pricing resolves at fill, never a locked quote).
-3. Create a protocol-held cash-out deposit.
-4. Load the connected wallet's cash-outs.
-5. Poll order state and withdraw when `nextActions` allows it.
+2. Pick Base USDC or a Relay-supported EVM source asset.
+3. Estimate the indicative fiat receive amount and historical `estimate().eta`.
+4. Create a protocol-held cash-out deposit.
+5. Load the connected wallet's cash-outs.
+6. Poll order state and withdraw when `nextActions` allows it.
 
 The app is production-only. It submits real transactions, so use a funded Base
-wallet and a real handle for platforms that validate accounts.
+wallet and a real handle for platforms that validate accounts. Non-Base source
+assets are routed through Relay into Base USDC before the Peer Cash order is
+created.
 
 Live demo: https://react-cashout-demo.vercel.app
 

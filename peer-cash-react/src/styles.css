@@ -88,7 +88,7 @@ select {
   width: 100%;
   min-height: 40px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--peer-black);
   color: var(--peer-white);
   padding: 0 14px;
@@ -231,8 +231,9 @@ h2 {
 .panel {
   min-width: 0;
   border: 1px solid var(--peer-border);
-  border-radius: 24px;
+  border-radius: 8px;
   background: var(--peer-rich-black);
+  container-type: inline-size;
   padding: 24px;
 }
 
@@ -287,7 +288,7 @@ h2 {
 
 .button {
   min-height: 40px;
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 0 16px;
   cursor: pointer;
   font-size: 0.88rem;
@@ -353,22 +354,34 @@ h2 {
 .action-band,
 .fills {
   border: 1px solid var(--peer-border);
-  border-radius: 16px;
+  border-radius: 8px;
   background: var(--peer-black);
 }
 
 .estimate-strip {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: baseline;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
   padding: 12px 14px;
+}
+
+.estimate-strip > div {
+  min-width: 0;
+}
+
+.estimate-strip > div + div {
+  border-left: 1px solid var(--peer-border);
+  padding-left: 14px;
 }
 
 .estimate-strip strong {
   display: block;
+  margin-top: 6px;
+  overflow: hidden;
   font-size: 1.05rem;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .notice {
@@ -428,7 +441,7 @@ h2 {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   border: 1px solid var(--peer-border);
-  border-radius: 16px;
+  border-radius: 8px;
   overflow: hidden;
 }
 
@@ -438,7 +451,7 @@ h2 {
   gap: 12px;
   align-items: center;
   border: 1px solid var(--peer-border);
-  border-radius: 16px;
+  border-radius: 8px;
   background: var(--peer-black);
   padding: 12px 14px;
 }
@@ -589,10 +602,10 @@ h2 {
 
 @media (max-width: 620px) {
   .app-root {
-    width: 100vw;
-    max-width: 1160px;
-    margin: 0;
-    padding: 14px 12px 48px;
+    width: calc(100% - 24px);
+    max-width: none;
+    margin: 0 auto;
+    padding: 14px 0 48px;
     overflow-x: hidden;
   }
 
@@ -650,7 +663,7 @@ h2 {
   }
 
   .panel {
-    border-radius: 16px;
+    border-radius: 8px;
     padding: 16px;
   }
 
@@ -662,13 +675,19 @@ h2 {
   }
 
   .form-grid,
-  .estimate-strip,
   .order-source {
     grid-template-columns: 1fr;
   }
 
   .estimate-strip {
-    display: flex;
+    grid-template-columns: 1fr;
+  }
+
+  .estimate-strip > div + div {
+    border-left: 0;
+    border-top: 1px solid var(--peer-border);
+    padding-top: 10px;
+    padding-left: 0;
   }
 
   .button-row,
