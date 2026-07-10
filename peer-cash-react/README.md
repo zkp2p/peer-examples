@@ -1,7 +1,7 @@
 # Peer Cash React Demo
 
 Small Vite app that shows the maker-side Peer Cash loop with the published
-`@zkp2p/cash@0.1.3` package:
+`@zkp2p/cash@0.1.5` package:
 
 1. Connect an injected wallet on Base.
 2. Pick Base USDC or a Relay-supported EVM source asset.
