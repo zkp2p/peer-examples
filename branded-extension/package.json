@@ -1,6 +1,6 @@
 {
   "name": "peer-branded-extension",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Forkable, brand-neutral browser extension for privacy-preserving payment verification on the Peer protocol.",
   "license": "MIT",
