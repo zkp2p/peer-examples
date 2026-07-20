@@ -28,6 +28,7 @@ export type MetadataMessagePayload = {
   platform: string;
   metadata: MetadataMessageType[];
   expiresAt: number;
+  captureAttemptId?: string;
   errorMessage?: string;
   buyerTeeCapture?: BuyerTeePaymentCapture | null;
   requiresMetadataApproval?: boolean;
