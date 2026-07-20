@@ -17,6 +17,7 @@ export type OpenNewTabPagePayload = {
   attestationPlatform?: string | null;
   attestationServiceUrl?: string | null;
   callerAddress?: string | null;
+  captureAttemptId?: string;
   captureMode?: MetadataCaptureMode;
   platform: string;
   providerConfig?: ProviderSettings;

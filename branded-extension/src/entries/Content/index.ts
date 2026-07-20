@@ -72,7 +72,12 @@ async function requestPageConnectionApproval(): Promise<boolean> {
   return approved;
 }
 
-function postMetadataError(platform: string, errorMessage: string, requestId = ''): void {
+function postMetadataError(
+  platform: string,
+  errorMessage: string,
+  requestId = '',
+  captureAttemptId?: string,
+): void {
   postToPage({
     type: ContentToPageAction.METADATA_MESSAGES_RESPONSE,
     status: 'loaded',
@@ -80,6 +85,7 @@ function postMetadataError(platform: string, errorMessage: string, requestId = '
     platform,
     metadata: [],
     expiresAt: Date.now(),
+    ...(captureAttemptId ? { captureAttemptId } : {}),
     errorMessage,
   });
 }
@@ -152,7 +158,12 @@ async function handlePageMessage(event: MessageEvent<PageToContentMessageType>):
     }
     case PageToContentAction.OPEN_NEW_TAB: {
       if (!isConnectedToPage()) {
-        postMetadataError(event.data.platform, `${BRAND.name} connection required.`);
+        postMetadataError(
+          event.data.platform,
+          `${BRAND.name} connection required.`,
+          '',
+          event.data.captureAttemptId,
+        );
         break;
       }
 
@@ -164,6 +175,8 @@ async function handlePageMessage(event: MessageEvent<PageToContentMessageType>):
         postMetadataError(
           event.data.platform,
           response?.error ?? 'Unable to open the verification tab.',
+          '',
+          event.data.captureAttemptId,
         );
       }
       break;
@@ -209,6 +222,7 @@ chrome.runtime.onMessage.addListener((message: BackgroundToContentMessageType) =
         message.data.platform,
         'Sharing the verification result was rejected.',
         message.data.requestId,
+        message.data.captureAttemptId,
       );
       return;
     }
@@ -220,6 +234,7 @@ chrome.runtime.onMessage.addListener((message: BackgroundToContentMessageType) =
       message.data.platform,
       'Reviewing the verification result failed.',
       message.data.requestId,
+      message.data.captureAttemptId,
     );
   });
 });

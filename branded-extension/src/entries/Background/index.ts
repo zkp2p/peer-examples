@@ -54,6 +54,7 @@ type CaptureSession = {
   authTabId: number;
   originalTabId: number;
   platform: string;
+  captureAttemptId?: string;
   providerConfig: ProviderSettings;
   isExtracting: boolean;
   hasSentMetadata: boolean;
@@ -113,6 +114,20 @@ function cleanupSession(authTabId: number): void {
   sessionsByAuthTabId.delete(authTabId);
 }
 
+function notifyCaptureCancelled(session: CaptureSession): void {
+  void safeChromeTabsSendMessage(session.originalTabId, {
+    action: BackgroundToContentAction.SEND_METADATA_MESSAGES_RESPONSE,
+    data: {
+      requestId: '',
+      platform: session.platform,
+      metadata: [],
+      expiresAt: Date.now(),
+      ...(session.captureAttemptId ? { captureAttemptId: session.captureAttemptId } : {}),
+      errorMessage: 'Provider authentication was cancelled.',
+    },
+  });
+}
+
 function startMetadataClickGuide(session: CaptureSession): void {
   const userInput = session.providerConfig.metadata.userInput;
   if (!userInput?.transactionXpath) {
@@ -156,10 +171,10 @@ async function sendMetadataToOriginalTab(
   session: CaptureSession,
   result: ExtractMetadataOffscreenResponse,
   fallbackRequestId?: string,
-): Promise<void> {
+): Promise<boolean> {
   const requestId = result.success ? result.requestId : (result.requestId ?? fallbackRequestId);
   if (!requestId) {
-    return;
+    return false;
   }
 
   const buyerTeeCaptureResult = result.success
@@ -182,6 +197,12 @@ async function sendMetadataToOriginalTab(
     sarCredentialFlowResult.capture || sarCredentialFlowResult.errorMessage,
   );
 
+  if (sessionsByAuthTabId.get(session.authTabId) !== session) {
+    return false;
+  }
+
+  session.hasSentMetadata = true;
+
   await safeChromeTabsSendMessage(session.originalTabId, {
     action: BackgroundToContentAction.SEND_METADATA_MESSAGES_RESPONSE,
     data: {
@@ -191,6 +212,7 @@ async function sendMetadataToOriginalTab(
         ? []
         : ((result.success ? (buyerTeeCaptureResult.metadata ?? result.metadata) : []) ?? []),
       expiresAt: Date.now() + 1000 * 60 * 5,
+      ...(session.captureAttemptId ? { captureAttemptId: session.captureAttemptId } : {}),
       errorMessage:
         buyerTeeCaptureResult.errorMessage ??
         sarCredentialFlowResult.errorMessage ??
@@ -200,6 +222,7 @@ async function sendMetadataToOriginalTab(
       sarCredentialCapture: sarCredentialFlowResult.capture,
     },
   });
+  return true;
 }
 
 async function extractMetadataForSession(
@@ -221,12 +244,18 @@ async function extractMetadataForSession(
       },
     });
 
+    if (sessionsByAuthTabId.get(session.authTabId) !== session) {
+      return;
+    }
+
     if (!response) {
       throw new Error('Metadata extraction worker did not respond. Re-authenticate and try again.');
     }
 
-    session.hasSentMetadata = true;
-    await sendMetadataToOriginalTab(session, response, request.requestId);
+    const didSendMetadata = await sendMetadataToOriginalTab(session, response, request.requestId);
+    if (!didSendMetadata) {
+      return;
+    }
     if (response.success) {
       await showAuthSuccessOverlay(session);
     } else {
@@ -234,8 +263,10 @@ async function extractMetadataForSession(
     }
     cleanupSession(session.authTabId);
   } catch (error) {
+    if (sessionsByAuthTabId.get(session.authTabId) !== session) {
+      return;
+    }
     logger.error('[Background] Metadata extraction failed:', error);
-    session.hasSentMetadata = true;
     await stopMetadataClickGuide(session.authTabId);
     await sendMetadataToOriginalTab(
       session,
@@ -320,6 +351,7 @@ async function handleOpenNewTabBackground(
       authTabId: authTab.id,
       originalTabId,
       platform: data.platform,
+      ...(data.captureAttemptId ? { captureAttemptId: data.captureAttemptId } : {}),
       providerConfig,
       isExtracting: false,
       hasSentMetadata: false,
@@ -365,9 +397,13 @@ chrome.webRequest.onResponseStarted.addListener(onResponseStarted, { urls: ['<al
 ]);
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  if (sessionsByAuthTabId.has(tabId)) {
-    cleanupSession(tabId);
+  const session = sessionsByAuthTabId.get(tabId);
+  if (!session) return;
+
+  if (!session.hasSentMetadata) {
+    notifyCaptureCancelled(session);
   }
+  cleanupSession(tabId);
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
