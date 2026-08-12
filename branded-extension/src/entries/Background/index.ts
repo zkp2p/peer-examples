@@ -188,7 +188,7 @@ async function sendMetadataToOriginalTab(
   const sarCredentialFlowResult = result.success
     ? await stageSarCredentialCaptureForMetadata({
         ensureOffscreenDocument,
-        requestId,
+        request: result.request,
         tabId: session.authTabId,
       })
     : { capture: null, errorMessage: null };

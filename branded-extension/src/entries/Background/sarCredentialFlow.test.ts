@@ -6,22 +6,14 @@ import {
   resolveSarCredentialCaptureConfig,
   stageSarCredentialCaptureForMetadata,
 } from './sarCredentialFlow';
+import type { RequestLog } from './requestLog';
 
-const {
-  createSarCredentialBundleInOffscreenMock,
-  getRequestLogMock,
-  prepareSarCredentialCaptureMock,
-} = vi.hoisted(() => ({
-  createSarCredentialBundleInOffscreenMock: vi.fn(),
-  getRequestLogMock: vi.fn(),
-  prepareSarCredentialCaptureMock: vi.fn(),
-}));
-
-vi.mock('./cache', () => ({
-  getCacheByTabId: () => ({
-    get: getRequestLogMock,
+const { createSarCredentialBundleInOffscreenMock, prepareSarCredentialCaptureMock } = vi.hoisted(
+  () => ({
+    createSarCredentialBundleInOffscreenMock: vi.fn(),
+    prepareSarCredentialCaptureMock: vi.fn(),
   }),
-}));
+);
 
 vi.mock('./sarCredentialCapture', () => ({
   prepareSarCredentialCapture: prepareSarCredentialCaptureMock,
@@ -31,7 +23,7 @@ vi.mock('./sarCredentialOffscreenBundle', () => ({
   createSarCredentialBundleInOffscreen: createSarCredentialBundleInOffscreenMock,
 }));
 
-const request = {
+const request: RequestLog = {
   initiator: 'https://account.venmo.com',
   method: 'GET',
   requestHeaders: [{ name: 'Cookie', value: 'venmo_session=abc' }],
@@ -73,7 +65,6 @@ describe('SAR credential capture staging', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearSarCredentialCapture(7);
-    getRequestLogMock.mockReturnValue(request);
     prepareSarCredentialCaptureMock.mockResolvedValue(payload);
     createSarCredentialBundleInOffscreenMock.mockResolvedValue(credentialBundle);
   });
@@ -87,7 +78,7 @@ describe('SAR credential capture staging', () => {
 
     const result = await stageSarCredentialCaptureForMetadata({
       ensureOffscreenDocument,
-      requestId: 'request-1',
+      request,
       tabId: 7,
     });
 
@@ -113,22 +104,30 @@ describe('SAR credential capture staging', () => {
     expect(result.capture).not.toHaveProperty('platform');
   });
 
-  it('surfaces missing captures through the page-target result', async () => {
+  it('stages from the exact request returned by metadata extraction', async () => {
+    const ensureOffscreenDocument = vi.fn().mockResolvedValue(undefined);
     rememberSarCredentialCapture(7, {
       attestationServiceUrl: 'https://attestation.test',
       platform: 'venmo',
     });
-    getRequestLogMock.mockReturnValueOnce(undefined);
 
     const result = await stageSarCredentialCaptureForMetadata({
-      ensureOffscreenDocument: vi.fn(),
-      requestId: 'request-1',
+      ensureOffscreenDocument,
+      request,
       tabId: 7,
     });
 
-    expect(result.capture).toBeNull();
-    expect(result.errorMessage).toBe('Session capture unavailable. Re-authenticate and try again.');
-    expect(createSarCredentialBundleInOffscreenMock).not.toHaveBeenCalled();
+    expect(prepareSarCredentialCaptureMock).toHaveBeenCalledWith({
+      platform: 'venmo',
+      request,
+    });
+    expect(result).toEqual({
+      capture: {
+        credentialBundle,
+        offchainId: 'seller_user',
+      },
+      errorMessage: null,
+    });
   });
 
   it('forwards caller address into the encrypted credential bundle request', async () => {
@@ -141,7 +140,7 @@ describe('SAR credential capture staging', () => {
 
     await stageSarCredentialCaptureForMetadata({
       ensureOffscreenDocument,
-      requestId: 'request-1',
+      request,
       tabId: 7,
     });
 
