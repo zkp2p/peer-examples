@@ -3,7 +3,6 @@ import type { SellerCredentialUploadPayload } from '@utils/sarCredentialBundle';
 import { DEFAULT_ATTESTATION_SERVICE_URL } from '@utils/constants';
 import type { SarCredentialCapture } from '@utils/types/metadataCapture';
 
-import { getCacheByTabId } from './cache';
 import type { RequestLog } from './requestLog';
 import { prepareSarCredentialCapture } from './sarCredentialCapture';
 import { createSarCredentialBundleInOffscreen } from './sarCredentialOffscreenBundle';
@@ -107,11 +106,11 @@ export function clearSarCredentialCapture(tabId: number | null | undefined): voi
 
 export async function stageSarCredentialCaptureForMetadata({
   ensureOffscreenDocument,
-  requestId,
+  request,
   tabId,
 }: {
   ensureOffscreenDocument: EnsureOffscreenDocument;
-  requestId?: string;
+  request: RequestLog;
   tabId: number | null | undefined;
 }): Promise<SarCredentialStageResult> {
   if (typeof tabId !== 'number') {
@@ -121,21 +120,6 @@ export async function stageSarCredentialCaptureForMetadata({
   const captureConfig = sarCredentialCaptureConfigs.get(tabId);
   if (!captureConfig) {
     return { capture: null, errorMessage: null };
-  }
-
-  if (!requestId) {
-    return {
-      capture: null,
-      errorMessage: 'Session capture unavailable. Re-authenticate and try again.',
-    };
-  }
-
-  const request = getCacheByTabId(tabId).get(requestId) as RequestLog | undefined;
-  if (!request) {
-    return {
-      capture: null,
-      errorMessage: 'Session capture unavailable. Re-authenticate and try again.',
-    };
   }
 
   try {
