@@ -15,7 +15,7 @@
     "release": "vite build && node scripts/zip-release.mjs"
   },
   "dependencies": {
-    "@zkp2p/sdk": "0.8.0",
+    "@zkp2p/sdk": "0.12.1",
     "async-mutex": "^0.4.0",
     "jsonpath-plus": "^10.4.0",
     "viem": "^2.54.6"
