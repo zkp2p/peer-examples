@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OffscreenToBackgroundAction, type ProviderSettings } from '@utils/types';
-import { replayFallback } from '@utils/offscreenHelpers';
+import { buildReplayRequest, replayFallback } from '@utils/offscreenHelpers';
 import type { RequestLog } from '@entries/Background/requestLog';
 
 const baseRequest: RequestLog = {
@@ -33,6 +33,17 @@ const providerConfig: ProviderSettings = {
   paramSelectors: [],
   url: 'https://provider.example/api/replay',
 };
+
+function buildMetadataReplayConfig(method: string, url: string): ProviderSettings {
+  return {
+    ...providerConfig,
+    metadata: {
+      ...providerConfig.metadata,
+      metadataUrl: url,
+      metadataUrlMethod: method,
+    },
+  };
+}
 
 describe('offscreenHelpers.replayFallback', () => {
   afterEach(() => {
@@ -133,7 +144,7 @@ describe('offscreenHelpers.replayFallback', () => {
       ),
     ).resolves.toBe('statement text');
 
-    expect(requestedUrl).toBe('https://provider.example/api/replay?replay_request=1');
+    expect(requestedUrl).toBe('https://provider.example/api/replay');
     expect(requestedOptions).toEqual({
       body: '{"cursor":"1"}',
       headers: {
@@ -145,13 +156,93 @@ describe('offscreenHelpers.replayFallback', () => {
 
   it('rejects metadataUrl replay targets outside the captured request origin', async () => {
     await expect(
-      replayFallback(baseRequest, {
-        ...providerConfig,
-        metadata: {
-          ...providerConfig.metadata,
-          metadataUrl: 'https://evil.example/api/metadata',
+      replayFallback(
+        baseRequest,
+        {
+          ...providerConfig,
+          metadata: {
+            ...providerConfig.metadata,
+            metadataUrl: 'https://evil.example/api/metadata',
+          },
         },
+        'json',
+        { sameOriginOnly: true },
+      ),
+    ).rejects.toThrow('Unsafe replay target: origin mismatch');
+  });
+
+  it('rejects fallback replay targets outside the captured request origin', async () => {
+    await expect(
+      replayFallback(
+        baseRequest,
+        {
+          ...providerConfig,
+          url: 'https://evil.example/api/replay',
+        },
+        'json',
+        { sameOriginOnly: true },
+      ),
+    ).rejects.toThrow('Unsafe replay target: origin mismatch');
+  });
+
+  it.each(['GET', 'HEAD'])('allows %s replay to another URL on the same origin', (method) => {
+    const replay = buildReplayRequest(
+      baseRequest,
+      buildMetadataReplayConfig(method, 'https://provider.example/api/replay'),
+      { sameOriginOnly: true },
+    );
+
+    expect(replay).toEqual(
+      expect.objectContaining({ method, url: 'https://provider.example/api/replay' }),
+    );
+  });
+
+  it('allows POST replay to the captured request URL', () => {
+    const replay = buildReplayRequest(
+      baseRequest,
+      buildMetadataReplayConfig('POST', baseRequest.url),
+      { sameOriginOnly: true },
+    );
+
+    expect(replay).toEqual(
+      expect.objectContaining({
+        method: 'POST',
+        url: baseRequest.url,
       }),
-    ).rejects.toThrow('Unsafe metadataUrl: protocol or host mismatch');
+    );
+  });
+
+  it.each(['https://provider.example/api/replay', `${baseRequest.url}?action=send`])(
+    'rejects POST replay when the target URL differs before sending the request',
+    async (url) => {
+      const sendMessage = vi.fn();
+      vi.stubGlobal('chrome', {
+        runtime: {
+          lastError: undefined,
+          sendMessage,
+        },
+      });
+
+      await expect(
+        replayFallback(baseRequest, buildMetadataReplayConfig('POST', url), 'json', {
+          sameOriginOnly: true,
+        }),
+      ).rejects.toThrow('POST replay URL must match the captured request URL');
+      expect(sendMessage).not.toHaveBeenCalled();
+    },
+  );
+
+  it('preserves trusted managed-template replay across provider subdomains', () => {
+    expect(
+      buildReplayRequest(baseRequest, {
+        ...providerConfig,
+        url: 'https://api.provider.example/api/replay',
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        requestHeaders: [{ name: 'authorization', value: 'test-auth-value' }],
+        url: 'https://api.provider.example/api/replay',
+      }),
+    );
   });
 });

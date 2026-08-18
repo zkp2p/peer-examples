@@ -65,6 +65,7 @@ vi.mock('./sarCredentialFlow', () => ({
 
 const OPEN_NEW_TAB_BACKGROUND = 'open_new_tab_background';
 const SEND_METADATA_MESSAGES_RESPONSE = 'send_metadata_messages_response';
+const EXTRACT_METADATA_OFFSCREEN = 'extract_metadata_offscreen';
 
 type RuntimeMessageListener = (
   message: unknown,
@@ -89,7 +90,7 @@ describe('Background capture session cancellation', () => {
   let runtimeMessageListener: RuntimeMessageListener;
   let tabRemovedListener: TabRemovedListener;
 
-  const openCaptureSession = async (captureAttemptId = 'attempt-1') => {
+  const openCaptureSession = async (captureAttemptId = 'attempt-1', usePageSuppliedConfig = true) => {
     const sendResponse = vi.fn();
 
     runtimeMessageListener(
@@ -100,13 +101,17 @@ describe('Background capture session cancellation', () => {
           captureAttemptId,
           captureMode: 'sellerCredential',
           platform: 'venmo',
-          providerConfig: {
-            authLink: 'https://venmo.example/login',
-            metadata: {
-              platform: 'venmo',
-              urlRegex: 'transactions',
-            },
-          },
+          ...(usePageSuppliedConfig
+            ? {
+                providerConfig: {
+                  authLink: 'https://venmo.example/login',
+                  metadata: {
+                    platform: 'venmo',
+                    urlRegex: 'transactions',
+                  },
+                },
+              }
+            : {}),
         },
       },
       { tab: { id: 11 } } as chrome.runtime.MessageSender,
@@ -190,6 +195,54 @@ describe('Background capture session cancellation', () => {
         errorMessage: 'Provider authentication was cancelled.',
       },
     });
+  });
+
+  it.each([
+    { expected: true, label: 'page-supplied', usePageSuppliedConfig: true },
+    { expected: false, label: 'managed template', usePageSuppliedConfig: false },
+  ])('constrains replay to the captured origin for $label configs', async ({
+    expected,
+    usePageSuppliedConfig,
+  }) => {
+    extensionMocks.runtimeSendMessage.mockResolvedValue({
+      success: true,
+      requestId: 'request-1',
+      metadata: [],
+    });
+    if (!usePageSuppliedConfig) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              authLink: 'https://venmo.example/login',
+              metadata: { platform: 'venmo', urlRegex: 'transactions' },
+            }),
+            { status: 200 },
+          ),
+        ),
+      );
+    }
+    await openCaptureSession('attempt-1', usePageSuppliedConfig);
+
+    await extensionMocks.metadataHandler?.({
+      initiator: 'https://venmo.example',
+      method: 'GET',
+      requestHeaders: [],
+      requestId: 'request-1',
+      tabId: 22,
+      type: 'xmlhttprequest',
+      url: 'https://venmo.example/transactions',
+    });
+
+    const extractCall = extensionMocks.runtimeSendMessage.mock.calls.find(
+      ([message]) => (message as { action?: string }).action === EXTRACT_METADATA_OFFSCREEN,
+    );
+    expect(extractCall?.[0]).toEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({ sameOriginReplayOnly: expected }),
+      }),
+    );
   });
 
   it('does not post a staged response after the provider tab is closed', async () => {

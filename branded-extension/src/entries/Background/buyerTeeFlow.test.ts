@@ -151,6 +151,29 @@ describe('buyer TEE capture staging', () => {
     });
   });
 
+  it('keeps inline Buyer TEE param replay same-origin constrained', async () => {
+    shouldResolveBuyerTeeParamResponseBodyMock.mockReturnValue(true);
+    rememberBuyerTeeCapture(7, {
+      actionType: 'transfer_sample',
+      attestationServiceUrl: 'https://attestation.test',
+      platform: 'samplepay',
+      providerConfig,
+      sameOriginReplayOnly: true,
+    });
+
+    await stageBuyerTeeCaptureForMetadata({
+      metadata: [{ hidden: false, originalIndex: 0 }],
+      request: getRequestLogMock(),
+      tabId: 7,
+    });
+
+    expect(resolveParamExtractionResponseBodyStringMock).toHaveBeenCalledWith({
+      dataRequest: expect.objectContaining({ requestId: 'request-1' }),
+      providerConfig,
+      replayConstraints: { sameOriginOnly: true },
+    });
+  });
+
   it('attaches strict buyer TEE params to the selected metadata row', async () => {
     prepareBuyerTeeCaptureMaterialMock.mockReturnValueOnce({
       metadata: [
