@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearRequestsLogsCache, getCacheByTabId } from './cache';
-import { clearInterceptPatterns, onSendHeaders, setInterceptPatterns } from './handlers';
+import {
+  clearInterceptPatterns,
+  onBeforeRequest,
+  onResponseStarted,
+  onSendHeaders,
+  setInterceptPatterns,
+} from './handlers';
+import type { RequestLog } from './requestLog';
+import { replayRequestInPage } from '@utils/misc';
 
 const nextTick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -69,5 +77,84 @@ describe('Background handlers tab-scoped interception', () => {
     await nextTick();
 
     expect(getCacheByTabId(10).get('request-3')).toBeUndefined();
+  });
+
+  it('ignores only the replay request while preserving concurrent provider traffic', async () => {
+    type InjectionResult = {
+      frameId: number;
+      result: { ok: boolean; status: number; text: string };
+    };
+    let resolveInjection!: (results: InjectionResult[]) => void;
+    const executeScript = vi.fn().mockReturnValue(
+      new Promise<InjectionResult[]>((resolve) => {
+        resolveInjection = resolve;
+      }),
+    );
+    vi.stubGlobal('chrome', {
+      runtime: {
+        id: 'extension-id',
+      },
+      scripting: {
+        executeScript,
+      },
+    });
+    setInterceptPatterns(['transactions'], 10);
+    const replayUrl = 'https://provider.example/api/transactions';
+    const replayBody = '{"operationName":"ProviderTransactionsQuery"}';
+    const metadataBody = '{"operationName":"ProviderActivityQuery"}';
+
+    const replayPromise = replayRequestInPage(10, {
+      initiator: 'https://provider.example',
+      method: 'POST',
+      requestBody: replayBody,
+      requestHeaders: [],
+      requestId: 'original-request',
+      tabId: 10,
+      type: 'xmlhttprequest',
+      url: replayUrl,
+    } as RequestLog);
+
+    onBeforeRequest({
+      ...requestDetails({ requestId: 'metadata-request', method: 'POST', url: replayUrl }),
+      requestBody: { raw: [{ bytes: new TextEncoder().encode(metadataBody).buffer }] },
+    } as chrome.webRequest.WebRequestBodyDetails);
+    onSendHeaders(
+      requestDetails({ requestId: 'metadata-request', method: 'POST', url: replayUrl }),
+    );
+    await nextTick();
+
+    expect(getCacheByTabId(10).get('metadata-request')).toEqual(
+      expect.objectContaining({
+        requestBody: metadataBody,
+        url: replayUrl,
+      }),
+    );
+
+    onBeforeRequest({
+      ...requestDetails({ requestId: 'replay-request', method: 'POST', url: replayUrl }),
+      requestBody: { raw: [{ bytes: new TextEncoder().encode(replayBody).buffer }] },
+    } as chrome.webRequest.WebRequestBodyDetails);
+    onSendHeaders(requestDetails({ requestId: 'replay-request', method: 'POST', url: replayUrl }));
+    onResponseStarted({
+      ...requestDetails({ requestId: 'replay-request', method: 'POST', url: replayUrl }),
+      responseHeaders: [],
+      statusCode: 200,
+      statusLine: 'HTTP/2 200',
+    } as chrome.webRequest.WebResponseHeadersDetails);
+    await nextTick();
+
+    expect(getCacheByTabId(10).get('replay-request')).toBeUndefined();
+
+    resolveInjection([
+      {
+        frameId: 0,
+        result: { ok: true, status: 200, text: '{}' },
+      },
+    ]);
+    await replayPromise;
+
+    onSendHeaders(requestDetails({ requestId: 'after-replay' }));
+    await nextTick();
+    expect(getCacheByTabId(10).get('after-replay')).toBeDefined();
   });
 });

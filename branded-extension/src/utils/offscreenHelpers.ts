@@ -23,6 +23,10 @@ type ReplayTarget = {
   url: string;
 };
 
+export type ReplayConstraints = {
+  sameOriginOnly?: boolean;
+};
+
 export function findMatchingRequest(
   requests: RequestLog[],
   method: string,
@@ -82,6 +86,7 @@ export function parseRequestBody(request: RequestLog, preprocessRegex?: string):
 function resolveReplayTarget(
   fallbackRequest: RequestLog,
   providerConfig: ProviderSettings,
+  constraints: ReplayConstraints = {},
 ): ReplayTarget {
   const metadataUrl = providerConfig.metadata.metadataUrl;
   const target: ReplayTarget = metadataUrl
@@ -96,20 +101,28 @@ function resolveReplayTarget(
         url: providerConfig.url,
       };
 
-  if (!metadataUrl) {
+  if (!constraints.sameOriginOnly) {
     return target;
   }
 
+  let replayUrl: URL;
+  let contextUrl: URL;
   try {
-    const replayUrl = new URL(target.url);
-    const contextUrl = new URL(fallbackRequest.url);
-    if (replayUrl.protocol !== 'https:' || replayUrl.host !== contextUrl.host) {
-      throw new Error(
-        `Unsafe metadataUrl: protocol or host mismatch (target=${replayUrl.href}, contextHost=${contextUrl.host})`,
-      );
-    }
+    replayUrl = new URL(target.url);
+    contextUrl = new URL(fallbackRequest.url);
   } catch (error) {
-    throw new Error(`Invalid metadataUrl: ${String(error)}`);
+    throw new Error(`Invalid replay target: ${String(error)}`);
+  }
+
+  if (replayUrl.protocol !== 'https:' || replayUrl.origin !== contextUrl.origin) {
+    throw new Error(
+      `Unsafe replay target: origin mismatch (target=${replayUrl.href}, contextOrigin=${contextUrl.origin})`,
+    );
+  }
+  if (target.method.toUpperCase() === 'POST' && replayUrl.href !== contextUrl.href) {
+    throw new Error(
+      `Unsafe replay target: POST replay URL must match the captured request URL (target=${replayUrl.href}, captured=${contextUrl.href})`,
+    );
   }
 
   return target;
@@ -118,8 +131,9 @@ function resolveReplayTarget(
 export function buildReplayRequest(
   fallbackRequest: RequestLog,
   providerConfig: ProviderSettings,
+  constraints: ReplayConstraints = {},
 ): RequestLog {
-  const target = resolveReplayTarget(fallbackRequest, providerConfig);
+  const target = resolveReplayTarget(fallbackRequest, providerConfig, constraints);
 
   return {
     ...fallbackRequest,
@@ -133,8 +147,9 @@ export async function replayFallback(
   fallbackRequest: RequestLog,
   providerConfig: ProviderSettings,
   responseType: ReplayResponseType = 'json',
+  constraints: ReplayConstraints = {},
 ): Promise<unknown> {
-  const replayRequest = buildReplayRequest(fallbackRequest, providerConfig);
+  const replayRequest = buildReplayRequest(fallbackRequest, providerConfig, constraints);
 
   if (providerConfig.metadata.shouldReplayRequestInPage) {
     const response = await safeChromeRuntimeSendMessage<{
@@ -172,10 +187,7 @@ export async function replayFallback(
     options.body = replayRequest.requestBody;
   }
 
-  const actualUrl = new URL(replayRequest.url);
-  actualUrl.searchParams.append('replay_request', '1');
-
-  const resp = await fetch(actualUrl.toString(), options);
+  const resp = await fetch(replayRequest.url, options);
   return responseType === 'text' ? await resp.text() : await resp.json();
 }
 

@@ -25,6 +25,92 @@ type ReplayInPageRequest = {
   url: string;
 };
 
+type ActiveInPageReplay = {
+  request: ReplayInPageRequest;
+  requestId?: string;
+};
+
+type InPageReplayCandidate = {
+  formData?: Record<string, string[]> | null;
+  method: string;
+  requestBody?: string;
+  requestId: string;
+  tabId: number;
+  url: string;
+};
+
+const activeInPageReplaysByTabId = new Map<number, ActiveInPageReplay[]>();
+
+function formDataBody(formData?: Record<string, string[]> | null): string | undefined {
+  if (!formData) {
+    return undefined;
+  }
+
+  const params = new URLSearchParams();
+  Object.entries(formData).forEach(([key, values]) => {
+    values.forEach((value) => params.append(key, value));
+  });
+  return params.toString();
+}
+
+function requestBody(request: {
+  formData?: Record<string, string[]> | null;
+  requestBody?: ReplayInPageRequest['requestBody'];
+}): string | undefined {
+  if (typeof request.requestBody === 'string') {
+    return request.requestBody;
+  }
+  return formDataBody(request.formData);
+}
+
+export function claimInPageReplayRequest(candidate: InPageReplayCandidate): boolean {
+  const replay = activeInPageReplaysByTabId
+    .get(candidate.tabId)
+    ?.find(
+      (activeReplay) =>
+        activeReplay.requestId === undefined &&
+        activeReplay.request.method === candidate.method &&
+        activeReplay.request.url === candidate.url &&
+        requestBody(activeReplay.request) === requestBody(candidate),
+    );
+  if (!replay) {
+    return false;
+  }
+
+  replay.requestId = candidate.requestId;
+  return true;
+}
+
+export function isInPageReplayRequest(tabId: number, requestId: string): boolean {
+  return (
+    activeInPageReplaysByTabId
+      .get(tabId)
+      ?.some((activeReplay) => activeReplay.requestId === requestId) ?? false
+  );
+}
+
+function startReplayRequestInPage(tabId: number, request: ReplayInPageRequest): ActiveInPageReplay {
+  const replay = { request };
+  const activeReplays = activeInPageReplaysByTabId.get(tabId) ?? [];
+  activeReplays.push(replay);
+  activeInPageReplaysByTabId.set(tabId, activeReplays);
+  return replay;
+}
+
+function finishReplayRequestInPage(tabId: number, replay: ActiveInPageReplay): void {
+  const activeReplays = activeInPageReplaysByTabId.get(tabId);
+  if (!activeReplays) {
+    throw new Error(`No active in-page replay exists for tab ${tabId}.`);
+  }
+
+  const remainingReplays = activeReplays.filter((activeReplay) => activeReplay !== replay);
+  if (remainingReplays.length === 0) {
+    activeInPageReplaysByTabId.delete(tabId);
+  } else {
+    activeInPageReplaysByTabId.set(tabId, remainingReplays);
+  }
+}
+
 export async function replayRequest(
   req: RequestLog,
 ): Promise<{ response: Response; text: string }> {
@@ -76,20 +162,18 @@ export async function replayRequestInPage(
   tabId: number,
   log: RequestLog,
 ): Promise<ReplayInPageResult> {
+  if (!tabId) {
+    return { ok: false, status: 0, error: 'Invalid tab ID' };
+  }
+
+  const replay = startReplayRequestInPage(tabId, log);
   try {
-    if (!tabId) {
-      return { ok: false, status: 0, error: 'Invalid tab ID' };
-    }
-
-    const actualUrl = new URL(log.url);
-    actualUrl.searchParams.append('replay_request', '1');
-
-    logger.log('[replayRequestInPage] Replaying request in page', actualUrl.toString());
+    logger.log('[replayRequestInPage] Replaying request in page', log.url);
 
     const results = await chrome.scripting.executeScript({
       target: { tabId },
       world: 'ISOLATED',
-      args: [{ ...log, url: actualUrl.toString() } as ReplayInPageRequest],
+      args: [log as ReplayInPageRequest],
       func: function inject(req: ReplayInPageRequest): Promise<ReplayInPageResult> {
         const forbidden = [
           'host',
@@ -151,5 +235,7 @@ export async function replayRequestInPage(
   } catch (e: unknown) {
     logger.error('[replayRequestInPage] Error:', e);
     return { ok: false, status: 0, error: String(e) };
+  } finally {
+    finishReplayRequestInPage(tabId, replay);
   }
 }

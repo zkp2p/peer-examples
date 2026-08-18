@@ -240,6 +240,7 @@ async function extractMetadataForSession(
       action: BackgroundToOffscreenAction.EXTRACT_METADATA_OFFSCREEN,
       data: {
         providerConfig: session.providerConfig,
+        sameOriginReplayOnly: session.requiresMetadataApproval,
         requests: getRequestLogsByTabId(session.authTabId),
       },
     });
@@ -367,6 +368,7 @@ async function handleOpenNewTabBackground(
         ? {
             ...buyerTeeCaptureConfig.config,
             providerConfig,
+            ...(usesCustomProviderTemplate(data) ? { sameOriginReplayOnly: true } : {}),
           }
         : null,
     );

@@ -17,7 +17,7 @@ async function extractMetadata(
     { action: typeof BackgroundToOffscreenAction.EXTRACT_METADATA_OFFSCREEN }
   >,
 ): Promise<ExtractMetadataOffscreenResponse> {
-  const { providerConfig, requests } = message.data;
+  const { providerConfig, requests, sameOriginReplayOnly } = message.data;
   const context = getContextRequests(requests, providerConfig);
   const contextRequest = context.found || context.fallback;
   if (!contextRequest) {
@@ -28,7 +28,9 @@ async function extractMetadata(
   }
 
   try {
-    const payload = await resolveMetadataPayload(context, providerConfig);
+    const payload = await resolveMetadataPayload(context, providerConfig, {
+      sameOriginOnly: sameOriginReplayOnly,
+    });
     const metadata = extractTransactionsFromPayload(payload, providerConfig);
     return {
       errorMessage:

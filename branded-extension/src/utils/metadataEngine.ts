@@ -8,6 +8,7 @@ import {
   parseJsonSafely,
   parseRequestBody,
   replayFallback,
+  type ReplayConstraints,
 } from '@utils/offscreenHelpers';
 
 export type ExtractionPayload = {
@@ -46,6 +47,7 @@ function hasXPathExtraction(cfg: ProviderSettings): boolean {
 export async function resolveMetadataPayload(
   reqs: { found?: RequestLog; fallback?: RequestLog },
   cfg: ProviderSettings,
+  replayConstraints: ReplayConstraints = {},
 ): Promise<ExtractionPayload> {
   const useMetadataUrl = !!cfg.metadata.metadataUrl;
   const wantsHtml = hasXPathExtraction(cfg);
@@ -55,7 +57,7 @@ export async function resolveMetadataPayload(
     if (!context) {
       throw new Error('metadataUrl specified but no matching request found for context');
     }
-    return await resolveViaReplay(context, cfg, wantsHtml);
+    return await resolveViaReplay(context, cfg, wantsHtml, replayConstraints);
   }
 
   if (reqs.found) {
@@ -69,19 +71,20 @@ export async function resolveMetadataPayload(
   if (!reqs.fallback) {
     throw new Error('No fallback request available for extraction');
   }
-  return await resolveViaReplay(reqs.fallback, cfg, wantsHtml);
+  return await resolveViaReplay(reqs.fallback, cfg, wantsHtml, replayConstraints);
 }
 
 async function resolveViaReplay(
   request: RequestLog,
   cfg: ProviderSettings,
   wantsHtml: boolean,
+  replayConstraints: ReplayConstraints,
 ): Promise<ExtractionPayload> {
-  const resp = await replayFallback(request, cfg, wantsHtml ? 'text' : 'json');
+  const resp = await replayFallback(request, cfg, wantsHtml ? 'text' : 'json', replayConstraints);
   const { str: bodyStr, json: bodyJson } = normalizeResponse(resp);
   return {
     request: {
-      ...buildReplayRequest(request, cfg),
+      ...buildReplayRequest(request, cfg, replayConstraints),
       responseBody: bodyStr,
     },
     bodyStr,
@@ -128,16 +131,23 @@ export async function resolveParamExtractionResponseBodyString({
   dataRequest,
   metadataPayload,
   providerConfig,
+  replayConstraints,
 }: {
   dataRequest: RequestLog;
   metadataPayload?: ExtractionPayload;
   providerConfig: ProviderSettings;
+  replayConstraints?: ReplayConstraints;
 }): Promise<string> {
   if (providerConfig.metadata.metadataUrl) {
     if (metadataPayload) {
       return metadataPayload.bodyStr;
     }
-    const replayedBody = await replayFallback(dataRequest, providerConfig, 'text');
+    const replayedBody = await replayFallback(
+      dataRequest,
+      providerConfig,
+      'text',
+      replayConstraints,
+    );
     return String(replayedBody ?? '');
   }
 

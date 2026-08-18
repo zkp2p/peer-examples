@@ -16,9 +16,13 @@ type BuyerTeeCaptureConfig = {
   attestationServiceUrl: string;
   platform: string;
   providerConfig: ProviderSettings;
+  sameOriginReplayOnly?: boolean;
 };
 
-type ResolvedBuyerTeeCaptureConfig = Omit<BuyerTeeCaptureConfig, 'providerConfig'>;
+type ResolvedBuyerTeeCaptureConfig = Omit<
+  BuyerTeeCaptureConfig,
+  'providerConfig' | 'sameOriginReplayOnly'
+>;
 
 type StageBuyerTeeCaptureResult = {
   capture: BuyerTeePaymentCapture | null;
@@ -123,6 +127,9 @@ export async function stageBuyerTeeCaptureForMetadata({
       ? await resolveParamExtractionResponseBodyString({
           dataRequest: request,
           providerConfig: captureConfig.providerConfig,
+          ...(captureConfig.sameOriginReplayOnly
+            ? { replayConstraints: { sameOriginOnly: true } }
+            : {}),
         })
       : undefined;
     const captureMaterial = prepareBuyerTeeCaptureMaterial({

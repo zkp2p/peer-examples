@@ -1,7 +1,12 @@
 import { getCacheByTabId } from './cache';
 import mutex from './mutex';
 import type { RequestLog } from './requestLog';
-import { replayRequest, replayRequestInPage } from '@utils/misc';
+import {
+  claimInPageReplayRequest,
+  isInPageReplayRequest,
+  replayRequest,
+  replayRequestInPage,
+} from '@utils/misc';
 import { logger } from '@utils/logger';
 
 const interceptRegexesByTabId = new Map<number, string[]>();
@@ -44,10 +49,6 @@ function isRelevantRequestType(type: chrome.webRequest.ResourceType): boolean {
   return type === 'xmlhttprequest' || type === 'main_frame';
 }
 
-function isReplayRequest(url: string): boolean {
-  return url.includes('replay_request=1');
-}
-
 function isExtensionInitiated(initiator?: string): boolean {
   return Boolean(initiator && initiator.includes(chrome.runtime.id));
 }
@@ -64,10 +65,13 @@ function decodeRequestBody(raw: chrome.webRequest.UploadData[] | undefined): str
 }
 
 export const onSendHeaders = (details: chrome.webRequest.WebRequestHeadersDetails) => {
+  if (isInPageReplayRequest(details.tabId, details.requestId)) {
+    return;
+  }
   void mutex.runExclusive(async () => {
     const { method, tabId, requestId, type, initiator, url } = details;
 
-    if (!isRelevantRequestType(type) || isExtensionInitiated(initiator) || isReplayRequest(url)) {
+    if (!isRelevantRequestType(type) || isExtensionInitiated(initiator)) {
       return;
     }
     if (!shouldIntercept(url, tabId) || method === 'OPTIONS' || method === 'HEAD') {
@@ -90,9 +94,24 @@ export const onSendHeaders = (details: chrome.webRequest.WebRequestHeadersDetail
 };
 
 export const onBeforeRequest = (details: chrome.webRequest.WebRequestBodyDetails) => {
+  const replayRequestBody = details.requestBody?.raw
+    ? decodeRequestBody(details.requestBody.raw)
+    : undefined;
+  if (
+    claimInPageReplayRequest({
+      formData: details.requestBody?.formData,
+      method: details.method,
+      requestBody: replayRequestBody,
+      requestId: details.requestId,
+      tabId: details.tabId,
+      url: details.url,
+    })
+  ) {
+    return;
+  }
   void mutex.runExclusive(async () => {
     const { method, requestBody, tabId, requestId, type, initiator, url } = details;
-    if (!isRelevantRequestType(type) || isExtensionInitiated(initiator) || isReplayRequest(url)) {
+    if (!isRelevantRequestType(type) || isExtensionInitiated(initiator)) {
       return;
     }
     if (!shouldIntercept(url, tabId) || method === 'OPTIONS' || method === 'HEAD') {
@@ -102,11 +121,10 @@ export const onBeforeRequest = (details: chrome.webRequest.WebRequestBodyDetails
     const cache = getCacheByTabId(tabId);
     const existing = cache.get(requestId);
     if (requestBody?.raw) {
-      const decoded = decodeRequestBody(requestBody.raw);
-      if (decoded !== undefined) {
+      if (replayRequestBody !== undefined) {
         cache.set(requestId, {
           ...existing,
-          requestBody: decoded,
+          requestBody: replayRequestBody,
         } as RequestLog);
       }
       return;
@@ -122,9 +140,12 @@ export const onBeforeRequest = (details: chrome.webRequest.WebRequestBodyDetails
 };
 
 export const onResponseStarted = (details: chrome.webRequest.WebResponseHeadersDetails) => {
+  if (isInPageReplayRequest(details.tabId, details.requestId)) {
+    return;
+  }
   void mutex.runExclusive(async () => {
     const { method, responseHeaders, tabId, requestId, statusCode, type, initiator, url } = details;
-    if (!isRelevantRequestType(type) || isExtensionInitiated(initiator) || isReplayRequest(url)) {
+    if (!isRelevantRequestType(type) || isExtensionInitiated(initiator)) {
       return;
     }
     if (!shouldIntercept(url, tabId) || method === 'OPTIONS' || method === 'HEAD') {

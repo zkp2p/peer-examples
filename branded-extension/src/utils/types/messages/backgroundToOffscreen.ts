@@ -35,6 +35,7 @@ interface IBackgroundToOffscreenMessages {
   [BackgroundToOffscreenAction.EXTRACT_METADATA_OFFSCREEN]: {
     data: {
       providerConfig: ProviderSettings;
+      sameOriginReplayOnly: boolean;
       requests: RequestLog[];
     };
   };
