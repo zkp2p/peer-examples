@@ -1,0 +1,26 @@
+{
+  "name": "peer-mpp-merchant-cashout",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Merchant server that takes Base USDC revenue over MPP and prepares unsigned Peer Cash cash-out plans after settlement.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test src/*.test.ts"
+  },
+  "dependencies": {
+    "@zkp2p/cash": "0.4.10",
+    "hono": "^4.13.3",
+    "mppx": "^0.8.17"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.23.12",
+    "typescript": "^5.5.4"
+  }
+}
