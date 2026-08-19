@@ -1,0 +1,25 @@
+{
+  "name": "peer-cash-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stdio MCP server that exposes the Peer Cash verbs to any agent host over the unsigned prepare path.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test src/*.test.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@zkp2p/cash": "0.4.10"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.23.12",
+    "typescript": "^5.5.4"
+  }
+}
