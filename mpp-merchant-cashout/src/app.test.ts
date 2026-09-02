@@ -13,6 +13,7 @@ test('prepares one unsigned plan from confirmed MPP revenue', async () => {
         amounts.push(input.amount)
         return {
           accessPolicyRequired: false,
+          accessPolicyPaymentMethods: [],
           register: { hashedOnchainIds: [] },
           steps: [],
           txs: [],
@@ -50,6 +51,7 @@ test('releases revenue when a payout needs an unsupported follow-up', async () =
       async prepare() {
         return {
           accessPolicyRequired: true,
+          accessPolicyPaymentMethods: [],
           register: { hashedOnchainIds: [] },
           steps: [],
           txs: [],
