@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { injectSpinner, startCountdownAndClose } from './authTabOverlay';
+import { clearSarCredentialCapture } from './sarCredentialFlow';
 
 type MetadataRequest = {
   initiator: string | null;
@@ -291,4 +293,98 @@ describe('Background capture session cancellation', () => {
       }),
     );
   });
+  it.each([
+    { kind: 'seller', error: 'Seller credential creation failed.' },
+    { kind: 'buyer', error: 'Buyer encryption failed.' },
+    { kind: 'metadata', error: 'No transactions could be extracted.' },
+    { kind: 'worker', error: 'Metadata extraction failed.' },
+  ])('reports $kind failure without starting the success countdown', async ({ kind, error }) => {
+    extensionMocks.runtimeSendMessage.mockResolvedValue(
+      kind === 'worker'
+        ? { success: false, requestId: 'request-1', error }
+        : {
+            success: true,
+            requestId: 'request-1',
+            metadata: [],
+            ...(kind === 'metadata' ? { errorMessage: error } : {}),
+          },
+    );
+    if (kind === 'seller') {
+      extensionMocks.stageSarCapture.mockResolvedValue({ capture: null, errorMessage: error });
+    }
+    if (kind === 'buyer') {
+      extensionMocks.stageBuyerCapture.mockResolvedValue({ capture: null, errorMessage: error });
+    }
+    await openCaptureSession();
+    const request: MetadataRequest = {
+      initiator: 'https://venmo.example',
+      method: 'GET',
+      requestHeaders: [],
+      requestId: 'request-1',
+      tabId: 22,
+      type: 'xmlhttprequest',
+      url: 'https://venmo.example/transactions',
+    };
+    await extensionMocks.metadataHandler?.(request);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(extensionMocks.tabsSendMessage).toHaveBeenCalledWith(11, {
+      action: SEND_METADATA_MESSAGES_RESPONSE,
+      data: expect.objectContaining({ errorMessage: error, captureAttemptId: 'attempt-1' }),
+    });
+    expect(injectSpinner).not.toHaveBeenCalled();
+    expect(startCountdownAndClose).not.toHaveBeenCalled();
+    expect(clearSarCredentialCapture).toHaveBeenCalledWith(22);
+
+    // The failed attempt is terminal; repeated requests and tab closure cannot resend it.
+    await extensionMocks.metadataHandler?.(request);
+    tabRemovedListener(22);
+    const responses = extensionMocks.tabsSendMessage.mock.calls.filter(
+      ([, message]) => message.action === SEND_METADATA_MESSAGES_RESPONSE,
+    );
+    expect(responses).toHaveLength(1);
+  });
+
+  it.each([null, 'Buyer encryption failed.'])(
+    'ignores metadata-only errors after seller capture while preserving buyer errors (%s)',
+    async (buyerError) => {
+      const capture = {
+        offchainId: 'seller-example',
+        credentialBundle: { platform: 'venmo', encryptedBlob: 'test-sealed-bundle' },
+      };
+      extensionMocks.runtimeSendMessage.mockResolvedValue({
+        success: true,
+        requestId: 'request-1',
+        metadata: [{ ignored: 'metadata must stay suppressed' }],
+        errorMessage: 'No transactions could be extracted.',
+      });
+      extensionMocks.stageSarCapture.mockResolvedValue({ capture, errorMessage: null });
+      extensionMocks.stageBuyerCapture.mockResolvedValue({ capture: null, errorMessage: buyerError });
+      await openCaptureSession();
+      await extensionMocks.metadataHandler?.({
+        initiator: 'https://venmo.example',
+        method: 'GET',
+        requestHeaders: [],
+        requestId: 'request-1',
+        tabId: 22,
+        type: 'xmlhttprequest',
+        url: 'https://venmo.example/transactions',
+      });
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(extensionMocks.tabsSendMessage).toHaveBeenCalledWith(11, {
+        action: SEND_METADATA_MESSAGES_RESPONSE,
+        data: expect.objectContaining({
+          errorMessage: buyerError ?? undefined,
+          metadata: [],
+          sarCredentialCapture: capture,
+          requiresMetadataApproval: true,
+        }),
+      });
+      expect(injectSpinner).toHaveBeenCalledTimes(buyerError ? 0 : 1);
+      expect(startCountdownAndClose).toHaveBeenCalledTimes(buyerError ? 0 : 1);
+      expect(clearSarCredentialCapture).toHaveBeenCalledWith(22);
+    },
+  );
+
 });
