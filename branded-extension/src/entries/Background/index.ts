@@ -171,10 +171,10 @@ async function sendMetadataToOriginalTab(
   session: CaptureSession,
   result: ExtractMetadataOffscreenResponse,
   fallbackRequestId?: string,
-): Promise<boolean> {
+): Promise<{ sent: boolean; successful: boolean }> {
   const requestId = result.success ? result.requestId : (result.requestId ?? fallbackRequestId);
   if (!requestId) {
-    return false;
+    return { sent: false, successful: false };
   }
 
   const buyerTeeCaptureResult = result.success
@@ -198,8 +198,17 @@ async function sendMetadataToOriginalTab(
   );
 
   if (sessionsByAuthTabId.get(session.authTabId) !== session) {
-    return false;
+    return { sent: false, successful: false };
   }
+
+  const errorMessage =
+    buyerTeeCaptureResult.errorMessage ??
+    sarCredentialFlowResult.errorMessage ??
+    (sarCredentialFlowResult.capture
+      ? undefined
+      : result.success
+        ? result.errorMessage
+        : result.error);
 
   session.hasSentMetadata = true;
 
@@ -213,16 +222,13 @@ async function sendMetadataToOriginalTab(
         : ((result.success ? (buyerTeeCaptureResult.metadata ?? result.metadata) : []) ?? []),
       expiresAt: Date.now() + 1000 * 60 * 5,
       ...(session.captureAttemptId ? { captureAttemptId: session.captureAttemptId } : {}),
-      errorMessage:
-        buyerTeeCaptureResult.errorMessage ??
-        sarCredentialFlowResult.errorMessage ??
-        (result.success ? result.errorMessage : result.error),
+      errorMessage,
       buyerTeeCapture: buyerTeeCaptureResult.capture,
       requiresMetadataApproval: session.requiresMetadataApproval,
       sarCredentialCapture: sarCredentialFlowResult.capture,
     },
   });
-  return true;
+  return { sent: true, successful: result.success && !errorMessage };
 }
 
 async function extractMetadataForSession(
@@ -253,11 +259,11 @@ async function extractMetadataForSession(
       throw new Error('Metadata extraction worker did not respond. Re-authenticate and try again.');
     }
 
-    const didSendMetadata = await sendMetadataToOriginalTab(session, response, request.requestId);
-    if (!didSendMetadata) {
+    const delivery = await sendMetadataToOriginalTab(session, response, request.requestId);
+    if (!delivery.sent) {
       return;
     }
-    if (response.success) {
+    if (delivery.successful) {
       await showAuthSuccessOverlay(session);
     } else {
       await stopMetadataClickGuide(session.authTabId);
