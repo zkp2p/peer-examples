@@ -24,41 +24,43 @@ vi.mock('./sarCredentialOffscreenBundle', () => ({
 }));
 
 const request: RequestLog = {
-  initiator: 'https://account.venmo.com',
-  method: 'GET',
-  requestHeaders: [{ name: 'Cookie', value: 'venmo_session=abc' }],
+  initiator: 'https://cash.app',
+  method: 'POST',
+  requestHeaders: [{ name: 'Cookie', value: 'cashapp_session=abc' }],
   requestId: 'request-1',
-  responseBody: JSON.stringify({ stories: [] }),
+  requestBody: '{}',
+  responseBody: JSON.stringify({ activity_rows: [] }),
   tabId: 7,
   timestamp: 1760000000000,
   type: 'xmlhttprequest',
-  url: 'https://account.venmo.com/api/stories?feedType=me&externalId=123456',
+  url: 'https://cash.app/cash-app/activity/v1.0/page',
 };
 
 const payload = {
   offchainId: 'seller_user',
   payeeId: '123456',
-  platform: 'venmo',
+  platform: 'cashapp',
   sessionMaterial: {
-    accountId: '123456',
-    recipientUsername: 'seller_user',
+    customerId: '123456',
+    requestPayload: '{}',
+    recipientCashtag: 'seller_user',
     requestHeaders: {
-      Cookie: 'venmo_session=abc',
+      Cookie: 'cashapp_session=abc',
     },
-    sessionCookie: 'venmo_session=abc',
+    sessionCookie: 'cashapp_session=abc',
   },
 } as const;
 
 const credentialBundle = {
   bundleSignature: '0xbundle',
   credentialExpiresAt: null,
-  credentialType: 'venmo_seller_session',
+  credentialType: 'cashapp_seller_session',
   credentialValidatedAt: '1760000000000',
   encryptedBlob: 'encrypted-blob',
   encryptedDataKey: 'encrypted-key',
   nonce: 'nonce',
   payeeIdHash: '0xpayeehash',
-  platform: 'venmo',
+  platform: 'cashapp',
 } as const;
 
 describe('SAR credential capture staging', () => {
@@ -73,7 +75,7 @@ describe('SAR credential capture staging', () => {
     const ensureOffscreenDocument = vi.fn().mockResolvedValue(undefined);
     rememberSarCredentialCapture(7, {
       attestationServiceUrl: 'https://attestation.test',
-      platform: 'venmo',
+      platform: 'cashapp',
     });
 
     const result = await stageSarCredentialCaptureForMetadata({
@@ -83,7 +85,7 @@ describe('SAR credential capture staging', () => {
     });
 
     expect(prepareSarCredentialCaptureMock).toHaveBeenCalledWith({
-      platform: 'venmo',
+      platform: 'cashapp',
       request,
     });
     expect(createSarCredentialBundleInOffscreenMock).toHaveBeenCalledWith({
@@ -108,7 +110,7 @@ describe('SAR credential capture staging', () => {
     const ensureOffscreenDocument = vi.fn().mockResolvedValue(undefined);
     rememberSarCredentialCapture(7, {
       attestationServiceUrl: 'https://attestation.test',
-      platform: 'venmo',
+      platform: 'cashapp',
     });
 
     const result = await stageSarCredentialCaptureForMetadata({
@@ -118,7 +120,7 @@ describe('SAR credential capture staging', () => {
     });
 
     expect(prepareSarCredentialCaptureMock).toHaveBeenCalledWith({
-      platform: 'venmo',
+      platform: 'cashapp',
       request,
     });
     expect(result).toEqual({
@@ -135,7 +137,7 @@ describe('SAR credential capture staging', () => {
     rememberSarCredentialCapture(7, {
       attestationServiceUrl: 'https://attestation.test',
       callerAddress: '0x1111111111111111111111111111111111111111',
-      platform: 'venmo',
+      platform: 'cashapp',
     });
 
     await stageSarCredentialCaptureForMetadata({
@@ -156,17 +158,17 @@ describe('SAR credential capture staging', () => {
 });
 
 describe('resolveSarCredentialCaptureConfig', () => {
-  it('ignores ordinary metadata capture flows', () => {
+  it.each(['venmo', 'paypal', 'upi', 'wise'])('ignores ordinary metadata capture for %s', (platform) => {
     expect(
       resolveSarCredentialCaptureConfig({
         attestationServiceUrl: 'https://attestation.test',
-        platform: 'venmo',
+        platform,
       }),
     ).toEqual({ config: null, error: null });
   });
 
-  it.each(['venmo', 'cashapp', 'wise'])(
-    'resolves seller credential capture without curator URL config or a platform allowlist for %s',
+  it.each(['cashapp'])(
+    'resolves supported seller credential capture for %s',
     (platform) => {
       expect(
         resolveSarCredentialCaptureConfig({
@@ -186,6 +188,14 @@ describe('resolveSarCredentialCaptureConfig', () => {
     },
   );
 
+  it.each(['venmo', 'paypal', 'upi', 'wise'])(
+    'rejects unsupported %s seller capture',
+    (platform) => {
+      expect(resolveSarCredentialCaptureConfig({ platform, captureMode: 'sellerCredential' }))
+        .toEqual({ config: null, error: `Seller credential capture is not supported for ${platform}.` });
+    },
+  );
+
   it('requires a platform for seller credential capture', () => {
     expect(
       resolveSarCredentialCaptureConfig({
@@ -202,12 +212,12 @@ describe('resolveSarCredentialCaptureConfig', () => {
     expect(
       resolveSarCredentialCaptureConfig({
         captureMode: 'sellerCredential',
-        platform: 'venmo',
+        platform: 'cashapp',
       }),
     ).toEqual({
       config: {
         attestationServiceUrl: 'https://attestation-service.zkp2p.xyz',
-        platform: 'venmo',
+        platform: 'cashapp',
       },
       error: null,
     });
