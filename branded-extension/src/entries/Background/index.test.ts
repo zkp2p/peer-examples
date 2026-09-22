@@ -58,10 +58,10 @@ vi.mock('./offscreenDocument', () => ({ ensureOffscreenDocument: vi.fn() }));
 vi.mock('./providerRequestMatcher', () => ({
   isProviderContextRequest: vi.fn(() => true),
 }));
-vi.mock('./sarCredentialFlow', () => ({
+vi.mock('./sarCredentialFlow', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./sarCredentialFlow')>()),
   clearSarCredentialCapture: vi.fn(),
   rememberSarCredentialCapture: vi.fn(),
-  resolveSarCredentialCaptureConfig: vi.fn(() => ({ config: null, error: null })),
   stageSarCredentialCaptureForMetadata: extensionMocks.stageSarCapture,
 }));
 
@@ -99,16 +99,16 @@ describe('Background capture session cancellation', () => {
       {
         action: OPEN_NEW_TAB_BACKGROUND,
         data: {
-          actionType: 'transfer_venmo',
+          actionType: 'transfer_cashapp',
           captureAttemptId,
           captureMode: 'sellerCredential',
-          platform: 'venmo',
+          platform: 'cashapp',
           ...(usePageSuppliedConfig
             ? {
                 providerConfig: {
-                  authLink: 'https://venmo.example/login',
+                  authLink: 'https://cashapp.example/login',
                   metadata: {
-                    platform: 'venmo',
+                    platform: 'cashapp',
                     urlRegex: 'transactions',
                   },
                 },
@@ -181,6 +181,34 @@ describe('Background capture session cancellation', () => {
     vi.unstubAllGlobals();
   });
 
+  it.each(['venmo', 'paypal', 'upi', 'wise'])(
+    'rejects %s seller capture without opening a tab or staging credentials',
+    async (platform) => {
+      const sendResponse = vi.fn();
+      runtimeMessageListener({
+        action: OPEN_NEW_TAB_BACKGROUND,
+        data: {
+          captureMode: 'sellerCredential',
+          platform,
+          providerConfig: {
+            authLink: 'https://provider.example/login',
+            metadata: { platform, urlRegex: 'transactions' },
+          },
+        },
+      }, { tab: { id: 11 } } as chrome.runtime.MessageSender, sendResponse);
+
+      await vi.waitFor(() => {
+        expect(sendResponse).toHaveBeenCalledWith({
+          success: false,
+          error: `Seller credential capture is not supported for ${platform}.`,
+        });
+      });
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      expect(extensionMocks.stageSarCapture).not.toHaveBeenCalled();
+      expect(extensionMocks.runtimeSendMessage).not.toHaveBeenCalled();
+    },
+  );
+
   it('notifies the matching attempt when the provider tab is closed', async () => {
     await openCaptureSession();
 
@@ -190,7 +218,7 @@ describe('Background capture session cancellation', () => {
       action: SEND_METADATA_MESSAGES_RESPONSE,
       data: {
         requestId: '',
-        platform: 'venmo',
+        platform: 'cashapp',
         metadata: [],
         expiresAt: expect.any(Number),
         captureAttemptId: 'attempt-1',
@@ -217,8 +245,8 @@ describe('Background capture session cancellation', () => {
         vi.fn().mockResolvedValue(
           new Response(
             JSON.stringify({
-              authLink: 'https://venmo.example/login',
-              metadata: { platform: 'venmo', urlRegex: 'transactions' },
+              authLink: 'https://cashapp.example/login',
+              metadata: { platform: 'cashapp', urlRegex: 'transactions' },
             }),
             { status: 200 },
           ),
@@ -228,13 +256,13 @@ describe('Background capture session cancellation', () => {
     await openCaptureSession('attempt-1', usePageSuppliedConfig);
 
     await extensionMocks.metadataHandler?.({
-      initiator: 'https://venmo.example',
+      initiator: 'https://cashapp.example',
       method: 'GET',
       requestHeaders: [],
       requestId: 'request-1',
       tabId: 22,
       type: 'xmlhttprequest',
-      url: 'https://venmo.example/transactions',
+      url: 'https://cashapp.example/transactions',
     });
 
     const extractCall = extensionMocks.runtimeSendMessage.mock.calls.find(
@@ -262,13 +290,13 @@ describe('Background capture session cancellation', () => {
 
     const extractionPromise = Promise.resolve(
       extensionMocks.metadataHandler?.({
-        initiator: 'https://venmo.example',
+        initiator: 'https://cashapp.example',
         method: 'GET',
         requestHeaders: [],
         requestId: 'request-1',
         tabId: 22,
         type: 'xmlhttprequest',
-        url: 'https://venmo.example/transactions',
+        url: 'https://cashapp.example/transactions',
       }),
     );
     await vi.waitFor(() => {
@@ -317,13 +345,13 @@ describe('Background capture session cancellation', () => {
     }
     await openCaptureSession();
     const request: MetadataRequest = {
-      initiator: 'https://venmo.example',
+      initiator: 'https://cashapp.example',
       method: 'GET',
       requestHeaders: [],
       requestId: 'request-1',
       tabId: 22,
       type: 'xmlhttprequest',
-      url: 'https://venmo.example/transactions',
+      url: 'https://cashapp.example/transactions',
     };
     await extensionMocks.metadataHandler?.(request);
     await vi.advanceTimersByTimeAsync(2000);
@@ -350,7 +378,7 @@ describe('Background capture session cancellation', () => {
     async (buyerError) => {
       const capture = {
         offchainId: 'seller-example',
-        credentialBundle: { platform: 'venmo', encryptedBlob: 'test-sealed-bundle' },
+        credentialBundle: { platform: 'cashapp', encryptedBlob: 'test-sealed-bundle' },
       };
       extensionMocks.runtimeSendMessage.mockResolvedValue({
         success: true,
@@ -362,13 +390,13 @@ describe('Background capture session cancellation', () => {
       extensionMocks.stageBuyerCapture.mockResolvedValue({ capture: null, errorMessage: buyerError });
       await openCaptureSession();
       await extensionMocks.metadataHandler?.({
-        initiator: 'https://venmo.example',
+        initiator: 'https://cashapp.example',
         method: 'GET',
         requestHeaders: [],
         requestId: 'request-1',
         tabId: 22,
         type: 'xmlhttprequest',
-        url: 'https://venmo.example/transactions',
+        url: 'https://cashapp.example/transactions',
       });
       await vi.advanceTimersByTimeAsync(2000);
 

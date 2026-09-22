@@ -75,6 +75,10 @@ export function resolveSarCredentialCaptureConfig({
     };
   }
 
+  if (platform !== 'cashapp') {
+    return { config: null, error: `Seller credential capture is not supported for ${platform}.` };
+  }
+
   const normalizedAttestationServiceUrl =
     normalizeRequiredUrl(attestationServiceUrl) ?? DEFAULT_ATTESTATION_SERVICE_URL;
   const normalizedCallerAddress = callerAddress?.trim();

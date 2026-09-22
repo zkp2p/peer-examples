@@ -60,16 +60,6 @@ function normalizeCashAppCashtag(value: string): string {
   return normalized;
 }
 
-function getAccountIdFromVenmoUrl(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    const externalId = parsed.searchParams.get('externalId')?.trim();
-    return externalId && /^[0-9]+$/.test(externalId) ? externalId : null;
-  } catch {
-    return null;
-  }
-}
-
 function parseJson<T>(value: string | undefined, errorMessage: string): T {
   if (!value) {
     throw new Error(errorMessage);
@@ -80,52 +70,6 @@ function parseJson<T>(value: string | undefined, errorMessage: string): T {
   } catch {
     throw new Error(errorMessage);
   }
-}
-
-function findVenmoUsernameForAccountId(
-  responseBody: string | undefined,
-  accountId: string,
-): string | null {
-  if (!responseBody) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(responseBody) as { stories?: unknown[] };
-    const stories = Array.isArray(parsed.stories) ? parsed.stories : [];
-
-    for (const story of stories) {
-      if (!story || typeof story !== 'object') {
-        continue;
-      }
-
-      const title = (story as { title?: unknown }).title;
-      if (!title || typeof title !== 'object') {
-        continue;
-      }
-
-      const actors = [
-        (title as { sender?: unknown }).sender,
-        (title as { receiver?: unknown }).receiver,
-      ];
-
-      for (const actor of actors) {
-        if (!actor || typeof actor !== 'object') {
-          continue;
-        }
-
-        const id = (actor as { id?: unknown }).id;
-        const username = (actor as { username?: unknown }).username;
-        if (String(id) === accountId && typeof username === 'string' && username.trim()) {
-          return username.trim();
-        }
-      }
-    }
-  } catch {
-    return null;
-  }
-
-  return null;
 }
 
 function getRequestBodyString(request: RequestLog): string | null {
@@ -223,43 +167,6 @@ function extractCashAppIdentity(payload: CashAppActivityResponse): {
   return { cashtag, customerId };
 }
 
-function buildVenmoSessionMaterial({
-  request,
-}: {
-  request: RequestLog;
-}): SellerCredentialUploadPayload {
-  const requestHeaders = headersToRecord(request.requestHeaders);
-  const sessionCookie = getHeaderValue(requestHeaders, 'cookie');
-  if (!sessionCookie) {
-    throw new Error('No Venmo session cookie was captured. Re-authenticate and try again.');
-  }
-
-  const accountId = getAccountIdFromVenmoUrl(request.url);
-  if (!accountId) {
-    throw new Error('Could not extract the Venmo account ID from the captured request.');
-  }
-
-  const normalizedRecipientUsername = findVenmoUsernameForAccountId(
-    request.responseBody,
-    accountId,
-  );
-  if (!normalizedRecipientUsername) {
-    throw new Error('Could not extract the Venmo username from the captured response.');
-  }
-
-  return {
-    offchainId: normalizedRecipientUsername,
-    payeeId: accountId,
-    platform: 'venmo',
-    sessionMaterial: {
-      accountId,
-      recipientUsername: normalizedRecipientUsername,
-      requestHeaders,
-      sessionCookie,
-    },
-  };
-}
-
 function buildCashAppSessionMaterial({
   request,
 }: {
@@ -306,8 +213,6 @@ function buildSellerCredentialUploadPayload({
   switch (platform) {
     case 'cashapp':
       return buildCashAppSessionMaterial({ request });
-    case 'venmo':
-      return buildVenmoSessionMaterial({ request });
     default:
       throw new Error(`Seller credential capture is not supported for ${platform}.`);
   }

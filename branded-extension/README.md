@@ -25,6 +25,13 @@ Passwords, cookies, and screenshots stay on the device. The extension returns
 the attested result to your app. See [`docs/concept.md`](docs/concept.md) for
 the architecture.
 
+## Seller credential capture
+
+This example supports `captureMode: 'sellerCredential'` for Cash App only.
+Venmo, PayPal, UPI, and other unsupported seller platforms are rejected before
+opening a provider tab. Buyer and identity capture remain template-driven.
+Client-side OAuth connections are outside this extension example.
+
 ## Rebrand
 
 **Prerequisites:** Node 18+ and npm. A Chromium browser for loading the result.

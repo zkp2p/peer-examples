@@ -13,24 +13,25 @@ vi.mock('@zkp2p/sdk', () => ({
 const bundle = {
   bundleSignature: '0xbundle',
   credentialExpiresAt: null,
-  credentialType: 'venmo_seller_session',
+  credentialType: 'cashapp_seller_session',
   credentialValidatedAt: '1760000000000',
   encryptedBlob: 'encrypted-blob',
   encryptedDataKey: 'encrypted-key',
   nonce: 'nonce',
   payeeIdHash: '0xpayeehash',
-  platform: 'venmo',
+  platform: 'cashapp',
 };
 
 const sdkPayload = {
   payeeId: '123456',
   sessionMaterial: {
-    accountId: '123456',
-    recipientUsername: 'seller_user',
+    customerId: '123456',
+    requestPayload: '{}',
+    recipientCashtag: 'seller_user',
     requestHeaders: {
-      Cookie: 'venmo_session=abc',
+      Cookie: 'cashapp_session=abc',
     },
-    sessionCookie: 'venmo_session=abc',
+    sessionCookie: 'cashapp_session=abc',
   },
 } as const;
 
@@ -38,7 +39,7 @@ const payload = {
   ...sdkPayload,
   callerAddress: '0x1111111111111111111111111111111111111111',
   offchainId: 'seller_user',
-  platform: 'venmo',
+  platform: 'cashapp',
 } as const;
 
 describe('createSarCredentialBundle', () => {
@@ -67,7 +68,7 @@ describe('createSarCredentialBundle', () => {
         callerAddress: '0x1111111111111111111111111111111111111111',
       },
       'https://attestation.test',
-      'venmo',
+      'cashapp',
       undefined,
       expect.any(Object),
     );

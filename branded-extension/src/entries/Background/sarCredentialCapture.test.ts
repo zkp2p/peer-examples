@@ -3,33 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RequestLog } from './requestLog';
 import { prepareSarCredentialCapture } from './sarCredentialCapture';
 
-function buildRequest(overrides: Partial<RequestLog> = {}): RequestLog {
-  return {
-    initiator: 'https://account.venmo.com',
-    method: 'GET',
-    requestHeaders: [
-      { name: 'Cookie', value: 'venmo_session=abc' },
-      { name: 'User-Agent', value: 'Chrome' },
-    ],
-    requestId: 'request-1',
-    responseBody: JSON.stringify({
-      stories: [
-        {
-          title: {
-            receiver: { id: '999999', username: 'other_user' },
-            sender: { id: '123456', username: 'seller_user' },
-          },
-        },
-      ],
-    }),
-    tabId: 7,
-    timestamp: 1760000000000,
-    type: 'xmlhttprequest',
-    url: 'https://account.venmo.com/api/stories?feedType=me&externalId=123456',
-    ...overrides,
-  };
-}
-
 function buildCashAppRequest(overrides: Partial<RequestLog> = {}): RequestLog {
   return {
     initiator: 'https://cash.app',
@@ -83,28 +56,6 @@ describe('prepareSarCredentialCapture', () => {
     vi.unstubAllGlobals();
   });
 
-  it('builds Venmo session material from the captured web request', async () => {
-    await expect(
-      prepareSarCredentialCapture({
-        platform: 'venmo',
-        request: buildRequest(),
-      }),
-    ).resolves.toEqual({
-      offchainId: 'seller_user',
-      payeeId: '123456',
-      platform: 'venmo',
-      sessionMaterial: {
-        accountId: '123456',
-        recipientUsername: 'seller_user',
-        requestHeaders: {
-          Cookie: 'venmo_session=abc',
-          'User-Agent': 'Chrome',
-        },
-        sessionCookie: 'venmo_session=abc',
-      },
-    });
-  });
-
   it('builds Cash App session material from the captured web request', async () => {
     await expect(
       prepareSarCredentialCapture({
@@ -132,27 +83,18 @@ describe('prepareSarCredentialCapture', () => {
   it('requires a captured request', async () => {
     await expect(
       prepareSarCredentialCapture({
-        platform: 'venmo',
+        platform: 'cashapp',
         request: null,
       }),
     ).rejects.toThrow('Session capture unavailable. Re-authenticate and try again.');
   });
 
-  it('rejects unsupported SAR payload builders', async () => {
+  it.each(['venmo', 'paypal', 'upi', 'wise'])('rejects unsupported %s SAR payloads', async (platform) => {
     await expect(
       prepareSarCredentialCapture({
-        platform: 'wise',
-        request: buildRequest(),
+        platform,
+        request: buildCashAppRequest(),
       }),
-    ).rejects.toThrow('Seller credential capture is not supported for wise.');
-  });
-
-  it('requires a Venmo username from capture', async () => {
-    await expect(
-      prepareSarCredentialCapture({
-        platform: 'venmo',
-        request: buildRequest({ responseBody: JSON.stringify({ stories: [] }) }),
-      }),
-    ).rejects.toThrow('Could not extract the Venmo username from the captured response.');
+    ).rejects.toThrow(`Seller credential capture is not supported for ${platform}.`);
   });
 });
