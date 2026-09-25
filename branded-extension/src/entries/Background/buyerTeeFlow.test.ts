@@ -6,19 +6,14 @@ import {
   resolveBuyerTeeCaptureConfig,
   stageBuyerTeeCaptureForMetadata,
 } from './buyerTeeFlow';
-import type { ProviderSettings } from '@utils/types';
+import type { RequestLog } from './requestLog';
 
-const getRequestLogMock = vi.hoisted(() => vi.fn());
 const prepareBuyerTeeCaptureMaterialMock = vi.hoisted(() => vi.fn());
 const encryptBuyerTeeSessionMaterialInBackgroundMock = vi.hoisted(() => vi.fn());
-const resolveParamExtractionResponseBodyStringMock = vi.hoisted(() => vi.fn());
-const shouldResolveBuyerTeeParamResponseBodyMock = vi.hoisted(() => vi.fn());
 
 vi.mock('./buyerTeeCapture', () => ({
   prepareBuyerTeeCaptureMaterial: (...args: unknown[]) =>
     prepareBuyerTeeCaptureMaterialMock(...args),
-  shouldResolveBuyerTeeParamResponseBody: (...args: unknown[]) =>
-    shouldResolveBuyerTeeParamResponseBodyMock(...args),
 }));
 
 vi.mock('./buyerTeeSessionMaterialEncryption', () => ({
@@ -26,77 +21,53 @@ vi.mock('./buyerTeeSessionMaterialEncryption', () => ({
     encryptBuyerTeeSessionMaterialInBackgroundMock(...args),
 }));
 
-vi.mock('@utils/metadataEngine', () => ({
-  resolveParamExtractionResponseBodyString: (...args: unknown[]) =>
-    resolveParamExtractionResponseBodyStringMock(...args),
-}));
-
-function buildProviderConfig(): ProviderSettings {
+function buildRequestLog(overrides: Partial<RequestLog> = {}): RequestLog {
   return {
-    authLink: 'https://payments.example/login',
-    body: '',
+    initiator: 'https://payments.example',
     method: 'GET',
-    metadata: {
-      fallbackMethod: '',
-      fallbackUrlRegex: '',
-      method: 'GET',
-      platform: 'samplepay',
-      preprocessRegex: '',
-      transactionsExtraction: {},
-      urlRegex: 'https://payments.example/api/history',
-    },
-    paramNames: [],
-    paramSelectors: [],
-    url: 'https://payments.example/api/history',
+    requestHeaders: [{ name: 'Cookie', value: 'session=abc' }],
+    requestId: 'request-1',
+    tabId: 7,
+    type: 'xmlhttprequest',
+    url: 'https://payments.example/api/history?account=123456',
+    ...overrides,
   };
 }
 
 describe('buyer TEE capture staging', () => {
-  const providerConfig = buildProviderConfig();
-
   beforeEach(() => {
     vi.clearAllMocks();
     clearBuyerTeeCapture(7);
-    getRequestLogMock.mockReturnValue({
-      requestHeaders: [{ name: 'Cookie', value: 'session=abc' }],
-      requestId: 'request-1',
-      tabId: 7,
-      url: 'https://payments.example/api/history?account=123456',
-    });
     prepareBuyerTeeCaptureMaterialMock.mockReturnValue({
       metadata: [{ hidden: false, originalIndex: 1, params: { SENDER_ID: 'sender-1' } }],
       params: [{ SENDER_ID: 'sender-1' }],
       sessionMaterial: { Cookie: 'session=abc' },
     });
-    resolveParamExtractionResponseBodyStringMock.mockResolvedValue('metadata-body');
-    shouldResolveBuyerTeeParamResponseBodyMock.mockReturnValue(false);
     encryptBuyerTeeSessionMaterialInBackgroundMock.mockResolvedValue('encrypted-session-material');
   });
 
   it('encrypts the captured buyer TEE session material during metadata interception', async () => {
     rememberBuyerTeeCapture(7, {
       actionType: 'transfer_sample',
-      attestationServiceUrl: 'https://attestation.test',
+      attestationServiceUrl: 'https://attestation-service.zkp2p.xyz',
       platform: 'samplepay',
-      providerConfig,
     });
 
     const result = await stageBuyerTeeCaptureForMetadata({
       metadata: [{ hidden: false, originalIndex: 1 }],
-      request: getRequestLogMock(),
+      request: buildRequestLog(),
       tabId: 7,
     });
 
     expect(prepareBuyerTeeCaptureMaterialMock).toHaveBeenCalledWith({
       metadata: [{ hidden: false, originalIndex: 1 }],
-      providerConfig,
       request: expect.objectContaining({
         url: 'https://payments.example/api/history?account=123456',
       }),
     });
     expect(encryptBuyerTeeSessionMaterialInBackgroundMock).toHaveBeenCalledWith({
       actionType: 'transfer_sample',
-      attestationServiceUrl: 'https://attestation.test',
+      attestationServiceUrl: 'https://attestation-service.zkp2p.xyz',
       platform: 'samplepay',
       sessionMaterial: { Cookie: 'session=abc' },
     });
@@ -109,68 +80,57 @@ describe('buyer TEE capture staging', () => {
     });
   });
 
-  it('uses the zkTLS param response-body resolver before building buyer TEE params', async () => {
-    const metadataUrlProviderConfig: ProviderSettings = {
-      ...providerConfig,
-      metadata: {
-        ...providerConfig.metadata,
-        metadataUrl: 'https://payments.example/api/replay-history',
-        metadataUrlMethod: 'GET',
-      },
-      paramNames: ['PAYMENT_ID'],
-      paramSelectors: [{ type: 'jsonPath', value: '$[{{INDEX}}].id' }],
-    };
-    shouldResolveBuyerTeeParamResponseBodyMock.mockReturnValue(true);
+  it('stages params already extracted under the offscreen replay policy', async () => {
     rememberBuyerTeeCapture(7, {
       actionType: 'transfer_sample',
-      attestationServiceUrl: 'https://attestation.test',
+      attestationServiceUrl: 'https://attestation-service.zkp2p.xyz',
       platform: 'samplepay',
-      providerConfig: metadataUrlProviderConfig,
     });
+    const replayedRequest = buildRequestLog({ url: 'https://payments.example/api/replay-history' });
 
     await stageBuyerTeeCaptureForMetadata({
-      metadata: [{ hidden: false, originalIndex: 1 }],
-      request: getRequestLogMock(),
+      metadata: [
+        {
+          hidden: false,
+          originalIndex: 1,
+          params: { PAYMENT_ID: 'payment-2' },
+        },
+      ],
+      request: replayedRequest,
       tabId: 7,
     });
 
-    expect(resolveParamExtractionResponseBodyStringMock).toHaveBeenCalledWith({
-      dataRequest: expect.objectContaining({
-        requestId: 'request-1',
-        url: 'https://payments.example/api/history?account=123456',
-      }),
-      providerConfig: metadataUrlProviderConfig,
-    });
     expect(prepareBuyerTeeCaptureMaterialMock).toHaveBeenCalledWith({
-      metadata: [{ hidden: false, originalIndex: 1 }],
-      paramResponseBodyString: 'metadata-body',
-      providerConfig: metadataUrlProviderConfig,
-      request: expect.objectContaining({
-        url: 'https://payments.example/api/history?account=123456',
-      }),
+      metadata: [
+        {
+          hidden: false,
+          originalIndex: 1,
+          params: { PAYMENT_ID: 'payment-2' },
+        },
+      ],
+      request: replayedRequest,
     });
   });
 
-  it('keeps inline Buyer TEE param replay same-origin constrained', async () => {
-    shouldResolveBuyerTeeParamResponseBodyMock.mockReturnValue(true);
+  it('stages buyer TEE capture from a replayed metadata request', async () => {
+    const replayedRequest = buildRequestLog({
+      url: 'https://payments.example/api/replay-history',
+    });
     rememberBuyerTeeCapture(7, {
       actionType: 'transfer_sample',
-      attestationServiceUrl: 'https://attestation.test',
+      attestationServiceUrl: 'https://attestation-service.zkp2p.xyz',
       platform: 'samplepay',
-      providerConfig,
-      sameOriginReplayOnly: true,
     });
 
     await stageBuyerTeeCaptureForMetadata({
-      metadata: [{ hidden: false, originalIndex: 0 }],
-      request: getRequestLogMock(),
+      metadata: [{ hidden: false, originalIndex: 1 }],
+      request: replayedRequest,
       tabId: 7,
     });
 
-    expect(resolveParamExtractionResponseBodyStringMock).toHaveBeenCalledWith({
-      dataRequest: expect.objectContaining({ requestId: 'request-1' }),
-      providerConfig,
-      replayConstraints: { sameOriginOnly: true },
+    expect(prepareBuyerTeeCaptureMaterialMock).toHaveBeenCalledWith({
+      metadata: [{ hidden: false, originalIndex: 1 }],
+      request: replayedRequest,
     });
   });
 
@@ -188,14 +148,13 @@ describe('buyer TEE capture staging', () => {
     });
     rememberBuyerTeeCapture(7, {
       actionType: 'transfer_sample',
-      attestationServiceUrl: 'https://attestation.test',
+      attestationServiceUrl: 'https://attestation-service.zkp2p.xyz',
       platform: 'samplepay',
-      providerConfig,
     });
 
     const result = await stageBuyerTeeCaptureForMetadata({
       metadata: [{ hidden: false, originalIndex: 8 }],
-      request: getRequestLogMock(),
+      request: buildRequestLog(),
       tabId: 7,
     });
 
@@ -210,9 +169,53 @@ describe('buyer TEE capture staging', () => {
       },
     ]);
   });
+
+  it('returns plugin-matched verifier params with the encrypted session', async () => {
+    prepareBuyerTeeCaptureMaterialMock.mockReturnValueOnce({
+      metadata: [],
+      params: [],
+      sessionMaterial: { Cookie: 'session=abc' },
+    });
+    rememberBuyerTeeCapture(7, {
+      actionType: 'transfer_sample',
+      attestationServiceUrl: 'https://attestation-service.zkp2p.xyz',
+      platform: 'samplepay',
+    });
+
+    const result = await stageBuyerTeeCaptureForMetadata({
+      metadata: [],
+      params: { PAYMENT_ID: 'payment-2' },
+      request: buildRequestLog(),
+      tabId: 7,
+    });
+
+    expect(result.capture).toEqual({
+      encryptedSessionMaterial: 'encrypted-session-material',
+      matchedParams: { PAYMENT_ID: 'payment-2' },
+    });
+    expect(result.metadata).toEqual([]);
+  });
 });
 
 describe('resolveBuyerTeeCaptureConfig', () => {
+  it('resolves the canonical Alipay transfer capture route', () => {
+    expect(
+      resolveBuyerTeeCaptureConfig({
+        actionType: 'transfer_alipay',
+        attestationServiceUrl: 'https://attestation-service.zkp2p.xyz',
+        captureMode: 'buyerTee',
+        platform: 'alipay',
+      }),
+    ).toEqual({
+      config: {
+        actionType: 'transfer_alipay',
+        attestationServiceUrl: 'https://attestation-service.zkp2p.xyz',
+        platform: 'alipay',
+      },
+      error: null,
+    });
+  });
+
   it('ignores non-buyer-TEE capture flows', () => {
     expect(resolveBuyerTeeCaptureConfig({ platform: 'samplepay' })).toEqual({
       config: null,
@@ -234,14 +237,14 @@ describe('resolveBuyerTeeCaptureConfig', () => {
     expect(
       resolveBuyerTeeCaptureConfig({
         actionType: 'transfer_custom',
-        attestationServiceUrl: 'https://attestation.test',
+        attestationServiceUrl: 'https://attestation-service.zkp2p.xyz',
         captureMode: 'buyerTee',
         platform: 'custom',
       }),
     ).toEqual({
       config: {
         actionType: 'transfer_custom',
-        attestationServiceUrl: 'https://attestation.test',
+        attestationServiceUrl: 'https://attestation-service.zkp2p.xyz',
         platform: 'custom',
       },
       error: null,
@@ -266,35 +269,35 @@ describe('resolveBuyerTeeCaptureConfig', () => {
       resolveBuyerTeeCaptureConfig({
         actionType: 'transfer_business_paypal',
         attestationActionType: 'transfer_paypal',
-        attestationServiceUrl: 'https://attestation.test/',
+        attestationServiceUrl: 'https://attestation-service.zkp2p.xyz/',
         captureMode: 'buyerTee',
         platform: 'paypal',
       }),
     ).toEqual({
       config: {
         actionType: 'transfer_paypal',
-        attestationServiceUrl: 'https://attestation.test',
+        attestationServiceUrl: 'https://attestation-service.zkp2p.xyz',
         platform: 'paypal',
       },
       error: null,
     });
   });
 
-  it('uses the attestation platform when it differs from the provider template platform', () => {
+  it('uses an attestation platform override when capture uses a bank provider', () => {
     expect(
       resolveBuyerTeeCaptureConfig({
-        actionType: 'transfer_business_paypal',
-        attestationActionType: 'transfer_paypal',
-        attestationPlatform: 'paypal',
-        attestationServiceUrl: 'https://attestation.test/',
+        actionType: 'transfer_zelle',
+        attestationActionType: 'transfer_zelle_chase',
+        attestationPlatform: 'zelle',
+        attestationServiceUrl: 'https://attestation-service.zkp2p.xyz/',
         captureMode: 'buyerTee',
-        platform: 'paypal_business',
+        platform: 'chase',
       }),
     ).toEqual({
       config: {
-        actionType: 'transfer_paypal',
-        attestationServiceUrl: 'https://attestation.test',
-        platform: 'paypal',
+        actionType: 'transfer_zelle_chase',
+        attestationServiceUrl: 'https://attestation-service.zkp2p.xyz',
+        platform: 'zelle',
       },
       error: null,
     });
@@ -304,7 +307,7 @@ describe('resolveBuyerTeeCaptureConfig', () => {
     expect(
       resolveBuyerTeeCaptureConfig({
         actionType: 'transfer_custom',
-        attestationServiceUrl: 'https://attestation.test',
+        attestationServiceUrl: 'https://attestation-service.zkp2p.xyz',
         captureMode: 'buyerTee',
       }),
     ).toEqual({
@@ -313,7 +316,7 @@ describe('resolveBuyerTeeCaptureConfig', () => {
     });
     expect(
       resolveBuyerTeeCaptureConfig({
-        attestationServiceUrl: 'https://attestation.test',
+        attestationServiceUrl: 'https://attestation-service.zkp2p.xyz',
         captureMode: 'buyerTee',
         platform: 'custom',
       }),

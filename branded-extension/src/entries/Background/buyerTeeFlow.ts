@@ -1,28 +1,18 @@
 import { logger } from '@utils/logger';
-import type { BuyerTeePaymentCapture } from '@utils/buyerTeePaymentCapture';
-import { resolveParamExtractionResponseBodyString } from '@utils/metadataEngine';
+import type { BuyerTeePaymentCapture, BuyerTeePaymentParams } from '@utils/buyerTeePaymentCapture';
 import type { MetadataCaptureMode } from '@utils/metadataCaptureMode';
-import type { MetadataMessageType, ProviderSettings } from '@utils/types';
+import type { MetadataMessageType } from '@utils/types';
+import { resolveTrustedAttestationServiceUrl } from '@utils/trustedAttestationService';
 
 import type { RequestLog } from './requestLog';
-import {
-  prepareBuyerTeeCaptureMaterial,
-  shouldResolveBuyerTeeParamResponseBody,
-} from './buyerTeeCapture';
+import { prepareBuyerTeeCaptureMaterial } from './buyerTeeCapture';
 import { encryptBuyerTeeSessionMaterialInBackground } from './buyerTeeSessionMaterialEncryption';
 
 type BuyerTeeCaptureConfig = {
   actionType: string;
   attestationServiceUrl: string;
   platform: string;
-  providerConfig: ProviderSettings;
-  sameOriginReplayOnly?: boolean;
 };
-
-type ResolvedBuyerTeeCaptureConfig = Omit<
-  BuyerTeeCaptureConfig,
-  'providerConfig' | 'sameOriginReplayOnly'
->;
 
 type StageBuyerTeeCaptureResult = {
   capture: BuyerTeePaymentCapture | null;
@@ -47,7 +37,7 @@ export function resolveBuyerTeeCaptureConfig({
   captureMode?: MetadataCaptureMode;
   platform?: string;
 }): {
-  config: ResolvedBuyerTeeCaptureConfig | null;
+  config: BuyerTeeCaptureConfig | null;
   error: string | null;
 } {
   if (captureMode !== 'buyerTee') {
@@ -71,8 +61,15 @@ export function resolveBuyerTeeCaptureConfig({
     };
   }
 
-  const normalizedAttestationServiceUrl =
-    attestationServiceUrl?.trim().replace(/\/+$/u, '') || null;
+  let normalizedAttestationServiceUrl: string | null;
+  try {
+    normalizedAttestationServiceUrl = resolveTrustedAttestationServiceUrl(attestationServiceUrl);
+  } catch (error) {
+    return {
+      config: null,
+      error: error instanceof Error ? error.message : 'Attestation service URL is invalid.',
+    };
+  }
   if (!normalizedAttestationServiceUrl) {
     return {
       config: null,
@@ -104,10 +101,12 @@ export function clearBuyerTeeCapture(tabId: number | null | undefined): void {
 
 export async function stageBuyerTeeCaptureForMetadata({
   metadata,
+  params,
   request,
   tabId,
 }: {
   metadata?: MetadataMessageType[];
+  params?: BuyerTeePaymentParams;
   request: RequestLog;
   tabId: number | null | undefined;
 }): Promise<StageBuyerTeeCaptureResult> {
@@ -121,21 +120,8 @@ export async function stageBuyerTeeCaptureForMetadata({
   }
 
   try {
-    const paramResponseBodyString = shouldResolveBuyerTeeParamResponseBody(
-      captureConfig.providerConfig,
-    )
-      ? await resolveParamExtractionResponseBodyString({
-          dataRequest: request,
-          providerConfig: captureConfig.providerConfig,
-          ...(captureConfig.sameOriginReplayOnly
-            ? { replayConstraints: { sameOriginOnly: true } }
-            : {}),
-        })
-      : undefined;
     const captureMaterial = prepareBuyerTeeCaptureMaterial({
       metadata,
-      ...(paramResponseBodyString !== undefined ? { paramResponseBodyString } : {}),
-      providerConfig: captureConfig.providerConfig,
       request,
     });
     const encryptedSessionMaterial = await encryptBuyerTeeSessionMaterialInBackground({
@@ -148,6 +134,7 @@ export async function stageBuyerTeeCaptureForMetadata({
     return {
       capture: {
         encryptedSessionMaterial,
+        ...(params ? { matchedParams: params } : {}),
       },
       errorMessage: null,
       metadata: captureMaterial.metadata,

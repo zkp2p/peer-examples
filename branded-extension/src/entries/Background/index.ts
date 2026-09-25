@@ -1,17 +1,31 @@
 import { logger } from '@utils/logger';
 import { safeChromeRuntimeSendMessage, safeChromeTabsSendMessage } from '@utils/extensionMessaging';
-import { APP_WEB_URL, PROVIDER_TEMPLATE_API_ROOT } from '@utils/constants';
+import { PROVIDER_TEMPLATE_API_ROOT } from '@utils/constants';
+import { BRAND } from '@config/brand';
 import {
+  getExtensionManagerState,
+  isConnectedSite,
+  rememberConnectedSite,
+  removeCapturePlugin,
+  removeConnectedSite,
+  restrictExtensionStorageAccess,
+} from '@utils/extensionState';
+import {
+  ApprovalToBackgroundAction,
   BackgroundToContentAction,
   BackgroundToOffscreenAction,
   ContentToBackgroundAction,
+  ManagerToBackgroundAction,
   OffscreenToBackgroundAction,
+  type ApprovalToBackgroundMessageType,
   type ContentToBackgroundMessageType,
   type ExtractMetadataOffscreenResponse,
+  type ManagerToBackgroundMessageType,
   type OffscreenToBackgroundMessageType,
   type OpenNewTabPagePayload,
   type ProviderSettings,
 } from '@utils/types';
+import type { MetadataMessagePayload } from '@utils/types/messages/contentToPage';
 import { replayRequestInPage } from '@utils/misc';
 
 import { deleteCacheByTabId, getRequestLogsByTabId } from './cache';
@@ -39,43 +53,59 @@ import {
   stageSarCredentialCaptureForMetadata,
 } from './sarCredentialFlow';
 import type { RequestLog } from './requestLog';
+import { injectSpinner } from './authTabOverlay';
 import {
-  injectSpinner,
-  startCountdownAndClose,
-  updateSpinnerToGreenAndStatic,
-} from './authTabOverlay';
+  createCaptureTab,
+  finishCaptureTab,
+  focusCaptureTab,
+  handleCaptureLoginTabUpdated,
+  stopCaptureLoginDetection,
+} from './captureTab';
 import { isProviderContextRequest } from './providerRequestMatcher';
 import { installContentScriptsInExistingTabs } from './installBackfill';
+import { assertUsableProviderConfig, buildProviderPatternList } from './providerConfigValidation';
+import {
+  handleApprovalRuntimeMessage,
+  handleApprovalTabUpdated,
+  handleApprovalWindowRemoved,
+  requestExtensionApproval,
+} from './approvalWindow';
+import {
+  cancelPluginCaptureSessions,
+  type CaptureRequestSource,
+  handlePluginTabRemoved,
+  handlePluginTabUpdated,
+  openPluginCaptureSession,
+} from './pluginCaptureSession';
 
-type RuntimeMessage = ContentToBackgroundMessageType | OffscreenToBackgroundMessageType;
+type RuntimeMessage =
+  | ApprovalToBackgroundMessageType
+  | ContentToBackgroundMessageType
+  | ManagerToBackgroundMessageType
+  | OffscreenToBackgroundMessageType;
 type SendResponse = (response?: unknown) => void;
 
 type CaptureSession = {
   authTabId: number;
   originalTabId: number;
+  originalDocumentId: string;
+  originalFrameId: number;
+  sourceOrigin: string;
   platform: string;
   captureAttemptId?: string;
+  includeBuyerTeeParams: boolean;
   providerConfig: ProviderSettings;
   isExtracting: boolean;
   hasSentMetadata: boolean;
-  requiresMetadataApproval: boolean;
 };
 
 const sessionsByAuthTabId = new Map<number, CaptureSession>();
 
 function buildProviderConfigUrl(data: OpenNewTabPagePayload): string {
-  return `${PROVIDER_TEMPLATE_API_ROOT}${data.platform}/${data.actionType}.json`;
-}
-
-function usesCustomProviderTemplate(data: OpenNewTabPagePayload): boolean {
-  return Boolean(data.providerConfig);
+  return `${PROVIDER_TEMPLATE_API_ROOT}${encodeURIComponent(data.platform)}/${encodeURIComponent(data.actionType)}.json`;
 }
 
 async function resolveProviderConfig(data: OpenNewTabPagePayload): Promise<ProviderSettings> {
-  if (data.providerConfig) {
-    return data.providerConfig;
-  }
-
   const configUrl = buildProviderConfigUrl(data);
   logger.log('[Background] Fetching provider template:', configUrl);
   const response = await fetch(configUrl);
@@ -85,27 +115,145 @@ async function resolveProviderConfig(data: OpenNewTabPagePayload): Promise<Provi
   return (await response.json()) as ProviderSettings;
 }
 
-function buildPatternList(providerConfig: ProviderSettings): string[] {
-  const patternList: string[] = [];
-  const metadata = providerConfig.metadata;
+function resolveSourcePage(sender: chrome.runtime.MessageSender): CaptureRequestSource {
+  const documentId = (sender as chrome.runtime.MessageSender & { documentId?: string }).documentId;
+  if (sender.tab?.id === undefined || !documentId || sender.frameId === undefined) {
+    throw new Error('Unable to bind metadata capture to the requesting document.');
+  }
 
-  if (metadata.urlRegex) {
-    patternList.push(metadata.urlRegex);
+  const sourceUrl = sender.url ?? sender.tab.url;
+  if (!sourceUrl) {
+    throw new Error('Unable to resolve source page for metadata capture.');
   }
-  if (metadata.fallbackUrlRegex) {
-    patternList.push(metadata.fallbackUrlRegex);
+
+  const url = new URL(sourceUrl);
+  const isAllowedSource =
+    url.protocol === 'https:' ||
+    (url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname));
+  if (!isAllowedSource) {
+    throw new Error('Metadata capture requests must come from a secure page.');
   }
-  if (metadata.metadataUrl) {
-    const metadataUrlPattern = metadata.metadataUrl.replace(/\{\{[^}]+\}\}/g, '\\S+');
-    if (!patternList.includes(metadataUrlPattern)) {
-      patternList.push(metadataUrlPattern);
+
+  return {
+    documentId,
+    frameId: sender.frameId,
+    hostname: url.hostname,
+    origin: url.origin,
+    tabId: sender.tab.id,
+  };
+}
+
+function validateProviderIdentifier(value: string, label: string): void {
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(value)) {
+    throw new Error(`Invalid ${label}.`);
+  }
+}
+
+async function handleConnectionApproval(
+  sender: chrome.runtime.MessageSender,
+  sendResponse: SendResponse,
+): Promise<void> {
+  try {
+    const source = resolveSourcePage(sender);
+    const approved = await requestExtensionApproval({
+      approveLabel: 'Connect',
+      description: 'Allow metadata capture.',
+      hostname: source.hostname,
+      origin: source.origin,
+      permissions: ['Open provider tabs', 'Capture and return payment data'],
+      rejectLabel: 'Reject',
+      title: `Connect to ${BRAND.shortName}?`,
+    });
+    if (approved) await rememberConnectedSite(source.origin);
+    sendResponse({ approved });
+  } catch (error) {
+    logger.error('[Background] Connection approval failed', error);
+    sendResponse({ approved: false });
+  }
+}
+
+async function handleConnectionStatus(
+  sender: chrome.runtime.MessageSender,
+  sendResponse: SendResponse,
+): Promise<void> {
+  try {
+    const source = resolveSourcePage(sender);
+    sendResponse({ connected: await isConnectedSite(source.origin) });
+  } catch (error) {
+    logger.error('[Background] Connection status check failed', error);
+    sendResponse({ connected: false });
+  }
+}
+
+function isManagerSender(sender: chrome.runtime.MessageSender): boolean {
+  return sender.id === chrome.runtime.id && sender.url === chrome.runtime.getURL('manager.html');
+}
+
+async function notifyConnectionRevoked(origin: string): Promise<void> {
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(
+    tabs.map(async (tab) => {
+      if (tab.id === undefined || !tab.url) return;
+      try {
+        if (new URL(tab.url).origin !== origin) return;
+      } catch {
+        return;
+      }
+      await safeChromeTabsSendMessage(tab.id, {
+        action: BackgroundToContentAction.CONNECTION_REVOKED,
+        data: { origin },
+      });
+    }),
+  );
+}
+
+async function handleManagerMessage(
+  message: ManagerToBackgroundMessageType,
+  sender: chrome.runtime.MessageSender,
+  sendResponse: SendResponse,
+): Promise<void> {
+  if (!isManagerSender(sender)) {
+    sendResponse({ error: 'Extension settings request rejected.', success: false });
+    return;
+  }
+  try {
+    if (message.action === ManagerToBackgroundAction.REMOVE_CAPTURE_PLUGIN) {
+      const origin = new URL(message.data.sourceOrigin).origin;
+      await removeCapturePlugin(message.data.id, origin);
+      cancelPluginCaptureSessions(
+        (session) => session.plugin.id === message.data.id && session.sourceOrigin === origin,
+      );
     }
+    if (message.action === ManagerToBackgroundAction.REMOVE_CONNECTED_SITE) {
+      const origin = new URL(message.data.origin).origin;
+      await removeConnectedSite(origin);
+      for (const session of sessionsByAuthTabId.values()) {
+        if (session.sourceOrigin !== origin) continue;
+        notifyCaptureCancelled(session);
+        cleanupSession(session.authTabId);
+        void chrome.tabs.remove(session.authTabId);
+      }
+      cancelPluginCaptureSessions((session) => session.sourceOrigin === origin);
+      await notifyConnectionRevoked(origin);
+    }
+    sendResponse({ state: await getExtensionManagerState(), success: true });
+  } catch (error) {
+    sendResponse({
+      error: error instanceof Error ? error.message : 'Extension settings request failed.',
+      success: false,
+    });
   }
+}
 
-  return patternList;
+function sendMessageToSource(session: CaptureSession, message: unknown): Promise<unknown> {
+  return safeChromeTabsSendMessage(session.originalTabId, message, undefined, {
+    documentId: session.originalDocumentId,
+    frameId: session.originalFrameId,
+  });
 }
 
 function cleanupSession(authTabId: number): void {
+  stopCaptureLoginDetection(authTabId);
   clearInterceptPatterns(authTabId);
   clearShouldReplayRequestInPage(authTabId);
   clearSarCredentialCapture(authTabId);
@@ -115,7 +263,7 @@ function cleanupSession(authTabId: number): void {
 }
 
 function notifyCaptureCancelled(session: CaptureSession): void {
-  void safeChromeTabsSendMessage(session.originalTabId, {
+  void sendMessageToSource(session, {
     action: BackgroundToContentAction.SEND_METADATA_MESSAGES_RESPONSE,
     data: {
       requestId: '',
@@ -149,32 +297,14 @@ function stopMetadataClickGuide(authTabId: number): Promise<unknown> {
   });
 }
 
-async function showAuthSuccessOverlay(session: CaptureSession): Promise<void> {
-  await stopMetadataClickGuide(session.authTabId);
-  await injectSpinner(session.authTabId);
-  setTimeout(() => {
-    void (async () => {
-      await updateSpinnerToGreenAndStatic(session.authTabId);
-      startCountdownAndClose(
-        session.authTabId,
-        2,
-        !!session.providerConfig.metadata.shouldSkipCloseTab,
-        () => session.originalTabId,
-      );
-    })().catch((error) => {
-      logger.error('[Background] Failed to show auth success overlay:', error);
-    });
-  }, 1500);
-}
-
 async function sendMetadataToOriginalTab(
   session: CaptureSession,
   result: ExtractMetadataOffscreenResponse,
   fallbackRequestId?: string,
-): Promise<{ sent: boolean; successful: boolean }> {
+): Promise<{ sent: boolean; shared: boolean }> {
   const requestId = result.success ? result.requestId : (result.requestId ?? fallbackRequestId);
   if (!requestId) {
-    return { sent: false, successful: false };
+    return { sent: false, shared: false };
   }
 
   const buyerTeeCaptureResult = result.success
@@ -194,11 +324,12 @@ async function sendMetadataToOriginalTab(
     : { capture: null, errorMessage: null };
   const shouldSuppressMetadata = Boolean(
     buyerTeeCaptureResult.errorMessage ||
-    sarCredentialFlowResult.capture || sarCredentialFlowResult.errorMessage,
+    sarCredentialFlowResult.capture ||
+    sarCredentialFlowResult.errorMessage,
   );
 
   if (sessionsByAuthTabId.get(session.authTabId) !== session) {
-    return { sent: false, successful: false };
+    return { sent: false, shared: false };
   }
 
   const errorMessage =
@@ -210,25 +341,27 @@ async function sendMetadataToOriginalTab(
         ? result.errorMessage
         : result.error);
 
-  session.hasSentMetadata = true;
+  const data: MetadataMessagePayload = {
+    requestId,
+    platform: session.providerConfig.metadata.platform,
+    metadata: shouldSuppressMetadata
+      ? []
+      : ((result.success ? (buyerTeeCaptureResult.metadata ?? result.metadata) : []) ?? []),
+    expiresAt: Date.now() + 1000 * 60 * 5,
+    ...(session.captureAttemptId ? { captureAttemptId: session.captureAttemptId } : {}),
+    ...(errorMessage ? { errorMessage } : {}),
+    ...(buyerTeeCaptureResult.capture ? { buyerTeeCapture: buyerTeeCaptureResult.capture } : {}),
+    ...(sarCredentialFlowResult.capture
+      ? { sarCredentialCapture: sarCredentialFlowResult.capture }
+      : {}),
+  };
 
-  await safeChromeTabsSendMessage(session.originalTabId, {
+  session.hasSentMetadata = true;
+  await sendMessageToSource(session, {
     action: BackgroundToContentAction.SEND_METADATA_MESSAGES_RESPONSE,
-    data: {
-      requestId,
-      platform: session.providerConfig.metadata.platform,
-      metadata: shouldSuppressMetadata
-        ? []
-        : ((result.success ? (buyerTeeCaptureResult.metadata ?? result.metadata) : []) ?? []),
-      expiresAt: Date.now() + 1000 * 60 * 5,
-      ...(session.captureAttemptId ? { captureAttemptId: session.captureAttemptId } : {}),
-      errorMessage,
-      buyerTeeCapture: buyerTeeCaptureResult.capture,
-      requiresMetadataApproval: session.requiresMetadataApproval,
-      sarCredentialCapture: sarCredentialFlowResult.capture,
-    },
+    data,
   });
-  return { sent: true, successful: result.success && !errorMessage };
+  return { sent: true, shared: !errorMessage };
 }
 
 async function extractMetadataForSession(
@@ -245,8 +378,8 @@ async function extractMetadataForSession(
     const response = await safeChromeRuntimeSendMessage<ExtractMetadataOffscreenResponse>({
       action: BackgroundToOffscreenAction.EXTRACT_METADATA_OFFSCREEN,
       data: {
+        includeBuyerTeeParams: session.includeBuyerTeeParams,
         providerConfig: session.providerConfig,
-        sameOriginReplayOnly: session.requiresMetadataApproval,
         requests: getRequestLogsByTabId(session.authTabId),
       },
     });
@@ -263,8 +396,13 @@ async function extractMetadataForSession(
     if (!delivery.sent) {
       return;
     }
-    if (delivery.successful) {
-      await showAuthSuccessOverlay(session);
+    if (response.success && delivery.shared) {
+      await stopMetadataClickGuide(session.authTabId);
+      await finishCaptureTab(
+        session.authTabId,
+        session.originalTabId,
+        !!session.providerConfig.metadata.shouldSkipCloseTab,
+      );
     } else {
       await stopMetadataClickGuide(session.authTabId);
     }
@@ -311,20 +449,24 @@ setMetadataRequestCapturedHandler(async (request) => {
 
 async function handleOpenNewTabBackground(
   data: OpenNewTabPagePayload,
-  senderTab: chrome.tabs.Tab | undefined,
+  sender: chrome.runtime.MessageSender,
   sendResponse: SendResponse,
 ): Promise<void> {
   try {
-    const providerConfig = await resolveProviderConfig(data);
-    const patterns = buildPatternList(providerConfig);
-    if (patterns.length === 0) {
-      throw new Error('Provider template does not define metadata intercept patterns.');
+    const source = resolveSourcePage(sender);
+    validateProviderIdentifier(data.platform, 'provider platform');
+    validateProviderIdentifier(data.actionType, 'provider action');
+    if (data.attestationPlatform) {
+      validateProviderIdentifier(data.attestationPlatform, 'attestation platform');
     }
-
-    const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    const originalTabId = senderTab?.id ?? activeTabs[0]?.id;
-    if (!originalTabId) {
-      throw new Error('Unable to resolve source tab for metadata capture.');
+    if (data.attestationActionType) {
+      validateProviderIdentifier(data.attestationActionType, 'attestation action');
+    }
+    const capturePlugin = data.capturePlugin;
+    if (capturePlugin !== undefined) {
+      await openPluginCaptureSession({ ...data, capturePlugin }, source);
+      sendResponse({ success: true });
+      return;
     }
 
     const sarCredentialCaptureConfig = resolveSarCredentialCaptureConfig({
@@ -349,36 +491,36 @@ async function handleOpenNewTabBackground(
       throw new Error(buyerTeeCaptureConfig.error);
     }
 
-    const authTab = await chrome.tabs.create({ url: providerConfig.authLink, active: true });
-    if (!authTab.id) {
-      throw new Error('Unable to open provider authentication tab.');
-    }
+    const providerConfig = assertUsableProviderConfig(await resolveProviderConfig(data));
+    const patterns = buildProviderPatternList(providerConfig);
+
+    const authTabId = await createCaptureTab(source.tabId);
 
     const session: CaptureSession = {
-      authTabId: authTab.id,
-      originalTabId,
+      authTabId,
+      originalTabId: source.tabId,
+      originalDocumentId: source.documentId,
+      originalFrameId: source.frameId,
+      sourceOrigin: source.origin,
       platform: data.platform,
       ...(data.captureAttemptId ? { captureAttemptId: data.captureAttemptId } : {}),
+      includeBuyerTeeParams: buyerTeeCaptureConfig.config !== null,
       providerConfig,
       isExtracting: false,
       hasSentMetadata: false,
-      requiresMetadataApproval: usesCustomProviderTemplate(data),
     };
-    sessionsByAuthTabId.set(authTab.id, session);
-    setInterceptPatterns(patterns, authTab.id);
-    setShouldReplayRequestInPage(!!providerConfig.metadata.shouldReplayRequestInPage, authTab.id);
-    rememberSarCredentialCapture(authTab.id, sarCredentialCaptureConfig.config);
-    rememberBuyerTeeCapture(
-      authTab.id,
-      buyerTeeCaptureConfig.config
-        ? {
-            ...buyerTeeCaptureConfig.config,
-            providerConfig,
-            ...(usesCustomProviderTemplate(data) ? { sameOriginReplayOnly: true } : {}),
-          }
-        : null,
-    );
-    setTimeout(() => startMetadataClickGuide(session), 500);
+    sessionsByAuthTabId.set(authTabId, session);
+    setInterceptPatterns(patterns, authTabId);
+    setShouldReplayRequestInPage(!!providerConfig.metadata.shouldReplayRequestInPage, authTabId);
+    rememberSarCredentialCapture(authTabId, sarCredentialCaptureConfig.config);
+    rememberBuyerTeeCapture(authTabId, buyerTeeCaptureConfig.config);
+    try {
+      await chrome.tabs.update(authTabId, { url: providerConfig.authLink });
+    } catch (error) {
+      cleanupSession(authTabId);
+      void chrome.tabs.remove(authTabId);
+      throw error;
+    }
 
     sendResponse({ success: true });
   } catch (error) {
@@ -405,6 +547,7 @@ chrome.webRequest.onResponseStarted.addListener(onResponseStarted, { urls: ['<al
 ]);
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  if (handlePluginTabRemoved(tabId)) return;
   const session = sessionsByAuthTabId.get(tabId);
   if (!session) return;
 
@@ -414,7 +557,11 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   cleanupSession(tabId);
 });
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  handleApprovalTabUpdated(tabId, changeInfo);
+  handleCaptureLoginTabUpdated(tabId, changeInfo, tab);
+  if (handlePluginTabUpdated(tabId, changeInfo, tab)) return;
+
   const session = sessionsByAuthTabId.get(tabId);
   if (!session) {
     return;
@@ -425,20 +572,41 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   }
 });
 
-chrome.action.onClicked.addListener(() => {
-  void chrome.tabs.create({ url: APP_WEB_URL });
+chrome.windows.onRemoved.addListener(handleApprovalWindowRemoved);
+
+void restrictExtensionStorageAccess().catch((error) => {
+  logger.warn('[Background] Failed to restrict extension storage access.', error);
 });
 
 chrome.runtime.onMessage.addListener(
   (message: RuntimeMessage, sender: chrome.runtime.MessageSender, sendResponse: SendResponse) => {
     switch (message.action) {
-      case ContentToBackgroundAction.OPEN_NEW_TAB_BACKGROUND:
-        void handleOpenNewTabBackground(message.data, sender.tab, sendResponse);
+      case ContentToBackgroundAction.CAPTURE_LOGIN_REQUIRED:
+        if (sender.frameId === 0 && sender.tab?.id !== undefined) {
+          void focusCaptureTab(sender.tab.id);
+        }
+        return false;
+      case ContentToBackgroundAction.CHECK_CONNECTION_BACKGROUND:
+        void handleConnectionStatus(sender, sendResponse);
         return true;
+      case ContentToBackgroundAction.REQUEST_APPROVAL_BACKGROUND:
+        void handleConnectionApproval(sender, sendResponse);
+        return true;
+      case ContentToBackgroundAction.OPEN_NEW_TAB_BACKGROUND:
+        void handleOpenNewTabBackground(message.data, sender, sendResponse);
+        return true;
+      case ApprovalToBackgroundAction.GET_APPROVAL_REQUEST:
+      case ApprovalToBackgroundAction.RESPOND_TO_APPROVAL_REQUEST:
+        return handleApprovalRuntimeMessage(message, sender, sendResponse);
       case OffscreenToBackgroundAction.REPLAY_REQUEST_BACKGROUND:
         void replayRequestInPage(message.data.request.tabId, message.data.request).then(
           sendResponse,
         );
+        return true;
+      case ManagerToBackgroundAction.GET_MANAGER_STATE:
+      case ManagerToBackgroundAction.REMOVE_CAPTURE_PLUGIN:
+      case ManagerToBackgroundAction.REMOVE_CONNECTED_SITE:
+        void handleManagerMessage(message, sender, sendResponse);
         return true;
       default:
         return false;
@@ -447,9 +615,5 @@ chrome.runtime.onMessage.addListener(
 );
 
 chrome.runtime.onInstalled.addListener((details) => {
-  if (details.reason !== 'install') {
-    return;
-  }
-
-  installContentScriptsInExistingTabs();
+  if (details.reason === 'install') void installContentScriptsInExistingTabs();
 });

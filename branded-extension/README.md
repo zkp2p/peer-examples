@@ -25,12 +25,26 @@ Passwords, cookies, and screenshots stay on the device. The extension returns
 the attested result to your app. See [`docs/concept.md`](docs/concept.md) for
 the architecture.
 
-## Seller credential capture
+## Capture paths
 
-This example supports `captureMode: 'sellerCredential'` for Cash App only.
-Venmo, PayPal, UPI, and other unsupported seller platforms are rejected before
-opening a provider tab. Buyer and identity capture remain template-driven.
-Client-side OAuth connections are outside this extension example.
+The extension fetches a provider template from the configured API for legacy
+metadata capture. A host app can instead provide a local `capturePlugin` JSON
+object. The extension checks its digest against the configured API's plugin
+registry, asks the user to approve each new or changed plugin for the exact
+requesting origin, and runs its hooks in a sandbox without extension APIs, DOM,
+storage, or network access. Unknown or unavailable registry entries require an
+explicit risk acknowledgement. Settings lets users remove plugins and connected
+sites.
+
+Plugin origins must already be listed in `brand.config.json` `hostDomains`;
+re-run `npm run rebrand` after adding a provider. This kit keeps manifest host
+permissions narrow. Plugin source is supplied by the host app and never fetched
+by the extension. No bundled payment-provider plugin is included.
+
+Seller credential capture in this example supports Cash App only. Venmo, PayPal,
+UPI, and other unsupported seller platforms are rejected before opening a
+provider tab. Buyer and identity capture remain template-driven or can use an
+explicit plugin.
 
 ## Rebrand
 
@@ -74,7 +88,7 @@ no-op.
 | `apiBaseUrl`, `attestationServiceUrl` | The Peer services the extension talks to (default to the public protocol endpoints) |
 
 Read [`docs/host-permissions.md`](docs/host-permissions.md) before shipping.
-narrow permissions are what get an extension through store review.
+Narrow permissions are what get an extension through store review.
 
 ## Scripts
 
@@ -101,6 +115,9 @@ branded-extension/
     entries/Background/        ← service worker: capture orchestration, auth overlay
     entries/Content/           ← window.peer injection, connection approval, click guide
     entries/Offscreen/         ← capture encryption / credential bundling (isolated document)
+    entries/CaptureSandbox/    ← local QuickJS plugin execution
+    entries/Approval/          ← connection and plugin install consent
+    entries/Manager/           ← plugin and connected-site removal
     entries/Popup/             ← toolbar popup
     utils/                     ← capture engine, metadata engine, message types
   docs/                        ← concept, permissions, security invariants, integration

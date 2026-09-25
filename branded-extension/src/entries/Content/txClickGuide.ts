@@ -3,17 +3,28 @@ import {
   type BackgroundToContentMessageType,
 } from '@utils/types/messages';
 import type { UserInputConfig } from '@utils/types';
-import { getVisibleXpathMatches, resolveUserInputTiming } from '@utils/txClickGuideUtils';
+import {
+  DEFAULT_POLL_INTERVAL_MS,
+  DEFAULT_WAIT_FOR_XPATH_MS,
+  getVisibleXpathMatches,
+  isVisible,
+  resolveUserInputTiming,
+} from '@utils/txClickGuideUtils';
+import { captureHighlight, type CaptureHighlight } from '@utils/captureHighlight';
+import {
+  BRAND_IGNITE_YELLOW as ACCENT,
+  BRAND_BORDER as BORDER_DARK,
+  BRAND_FONT_STACK,
+  BRAND_FOREGROUND as FG,
+  BRAND_LOGO_PATH,
+  BRAND_SHADOW_LG as SHADOW_LG,
+  BRAND_SURFACE as DARK_BG,
+} from '@utils/brand';
 
-const STYLE_ID = 'peer-click-guide-style';
-const OVERLAY_ID = 'peer-click-guide-root';
-const HIGHLIGHT_ATTR = 'data-peer-highlight';
-const DARK_BG = '#101010';
-const FG = '#ffffff';
-const ACCENT = '#f5c400';
-const BORDER_DARK = '#2a2a2a';
-const SHADOW_LG = '0 20px 60px rgba(0, 0, 0, 0.35)';
-const peerLogoUrl = chrome.runtime.getURL('icon-32.png');
+const STYLE_ID = 'zkp2p-click-guide-style';
+const OVERLAY_ID = 'zkp2p-click-guide-root';
+const HIGHLIGHT_ATTR = 'data-zkp2p-highlight';
+const peerLogoUrl = chrome.runtime.getURL(BRAND_LOGO_PATH);
 
 function opacify(percent: number, hex: string): string {
   const normalized = hex.replace('#', '');
@@ -31,26 +42,47 @@ let pollTimeoutId: number | null = null;
 let waitObserver: MutationObserver | null = null;
 let waitStopAtMs: number | null = null;
 
+type ClickGuide = {
+  getMatches(): Element[];
+  promptText?: string;
+  waitForXpathMs: number;
+  pollIntervalMs: number;
+  dismissOnSelect?: boolean;
+};
+
 function ensureRuntimeListener() {
   if (runtimeListenerInstalled) return;
 
-  chrome.runtime.onMessage.addListener((message: BackgroundToContentMessageType) => {
-    switch (message.action) {
-      case BackgroundToContentAction.START_METADATA_CLICK_GUIDE:
-        startClickGuide(message.data.userInput);
-        break;
-      case BackgroundToContentAction.SEND_METADATA_MESSAGES_RESPONSE:
-      case BackgroundToContentAction.STOP_METADATA_CLICK_GUIDE:
-        try {
-          teardownFn?.();
-        } catch {
-          // Cleanup is best effort when the page is navigating.
-        }
-        break;
-      default:
-        break;
-    }
-  });
+  chrome.runtime.onMessage.addListener(
+    (message: BackgroundToContentMessageType, _sender, sendResponse) => {
+      switch (message.action) {
+        case BackgroundToContentAction.START_METADATA_CLICK_GUIDE:
+          startClickGuide(message.data.userInput);
+          break;
+        case BackgroundToContentAction.START_CAPTURE_HIGHLIGHT:
+          try {
+            startCaptureHighlight(message.data.highlight, message.data.expectedUrl);
+            sendResponse({ success: true });
+          } catch (error) {
+            sendResponse({
+              success: false,
+              error: error instanceof Error ? error.message : 'Capture highlight failed.',
+            });
+          }
+          break;
+        case BackgroundToContentAction.SEND_METADATA_MESSAGES_RESPONSE:
+        case BackgroundToContentAction.STOP_METADATA_CLICK_GUIDE:
+          try {
+            teardownFn?.();
+          } catch {
+            // Cleanup is best effort when the page is navigating.
+          }
+          break;
+        default:
+          break;
+      }
+    },
+  );
 
   runtimeListenerInstalled = true;
 }
@@ -74,9 +106,9 @@ function injectHighlightStyles() {
         content: "";
         position: absolute; inset: -6px; border-radius: 12px;
         box-shadow: 0 0 0 0 ${opacify(35, ACCENT)};
-        animation: peerPulse 1.4s ease-in-out infinite; pointer-events: none;
+        animation: zkp2pPulse 1.4s ease-in-out infinite; pointer-events: none;
       }
-      @keyframes peerPulse {
+      @keyframes zkp2pPulse {
         0% { box-shadow: 0 0 0 0 ${opacify(35, ACCENT)}; }
         70% { box-shadow: 0 0 0 14px ${opacify(0, ACCENT)}; }
         100% { box-shadow: 0 0 0 0 ${opacify(0, ACCENT)}; }
@@ -110,14 +142,13 @@ function createBubble(root: ShadowRoot, text: string) {
   wrap.style.pointerEvents = 'none';
 
   const bubble = document.createElement('div');
-  bubble.id = 'peer-bubble';
+  bubble.id = 'zkp2p-bubble';
   bubble.textContent = text;
   bubble.style.setProperty('all', 'initial');
   bubble.style.display = 'block';
   bubble.style.background = DARK_BG;
   bubble.style.color = FG;
-  bubble.style.fontFamily =
-    "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol'";
+  bubble.style.fontFamily = BRAND_FONT_STACK;
   bubble.style.fontSize = '14px';
   bubble.style.lineHeight = '18px';
   bubble.style.padding = '10px 12px';
@@ -184,8 +215,11 @@ function positionBubbleNear(
   triangle: HTMLDivElement,
 ) {
   const rect = (el as HTMLElement).getBoundingClientRect();
-  const top = Math.max(8, rect.top + window.scrollY - 12);
-  const left = Math.max(8, rect.left + window.scrollX);
+  const top = Math.max(8, rect.top - 12);
+  const left = Math.max(
+    8,
+    Math.min(rect.left, window.innerWidth - bubble.getBoundingClientRect().width - 8),
+  );
   wrap.style.top = `${top}px`;
   wrap.style.left = `${left}px`;
   bubble.style.transform = 'translateY(-100%)';
@@ -210,8 +244,8 @@ function stopWaiting() {
   waitStopAtMs = null;
 }
 
-function startWaitingForMatches(userInput: UserInputConfig) {
-  const { waitForXpathMs, pollIntervalMs } = resolveUserInputTiming(userInput);
+function startWaitingForMatches(guide: ClickGuide) {
+  const { waitForXpathMs, pollIntervalMs } = guide;
   if (waitForXpathMs === 0) return;
 
   waitStopAtMs = waitForXpathMs > 0 ? Date.now() + waitForXpathMs : null;
@@ -226,9 +260,9 @@ function startWaitingForMatches(userInput: UserInputConfig) {
       pollTimeoutId = null;
       if (mounted) return;
 
-      const matches = getVisibleXpathMatches(userInput.transactionXpath, document);
+      const matches = guide.getMatches();
       if (matches.length > 0) {
-        mountClickGuide(userInput, matches);
+        mountClickGuide(guide, matches);
         stopWaiting();
         return;
       }
@@ -249,12 +283,12 @@ function startWaitingForMatches(userInput: UserInputConfig) {
   scheduleCheck();
 }
 
-function mountClickGuide(userInput: UserInputConfig, matches: Element[]) {
+function mountClickGuide(guide: ClickGuide, matches: Element[]) {
   if (mounted) return;
 
   mounted = true;
   stopWaiting();
-  (window as { __peerActiveOverlay?: string }).__peerActiveOverlay = 'click_guide';
+  (window as { __zkp2pActiveOverlay?: string }).__zkp2pActiveOverlay = 'click_guide';
   injectHighlightStyles();
 
   matches.forEach((n) => n.setAttribute(HIGHLIGHT_ATTR, '1'));
@@ -262,7 +296,7 @@ function mountClickGuide(userInput: UserInputConfig, matches: Element[]) {
   const root = ensureOverlayRoot();
   const { wrap, bubble, triangle } = createBubble(
     root,
-    userInput.promptText || 'Click a transaction to extract metadata',
+    guide.promptText || 'Click a transaction to extract metadata',
   );
   positionBubbleNear(matches[0], wrap, bubble, triangle);
 
@@ -273,6 +307,7 @@ function mountClickGuide(userInput: UserInputConfig, matches: Element[]) {
     const target = ev.target as Element | null;
     const hit = target?.closest?.(`[${HIGHLIGHT_ATTR}]`);
     if (!hit) return;
+    if (guide.dismissOnSelect) teardown();
   };
 
   const onVisibility = () => {
@@ -289,7 +324,7 @@ function mountClickGuide(userInput: UserInputConfig, matches: Element[]) {
     window.removeEventListener('resize', onResize);
     document.removeEventListener('visibilitychange', onVisibility);
     document.getElementById(OVERLAY_ID)?.remove();
-    (window as { __peerActiveOverlay?: string }).__peerActiveOverlay = undefined;
+    (window as { __zkp2pActiveOverlay?: string }).__zkp2pActiveOverlay = undefined;
     teardownFn = null;
   }
 
@@ -301,19 +336,64 @@ function mountClickGuide(userInput: UserInputConfig, matches: Element[]) {
   document.addEventListener('visibilitychange', onVisibility);
 }
 
-function startClickGuide(userInput: UserInputConfig) {
+function showClickGuide(guide: ClickGuide) {
   if (mounted) return;
-  const xpath = (userInput.transactionXpath || '').trim();
-  if (!xpath) return;
   stopWaiting();
 
-  const matches = getVisibleXpathMatches(xpath, document);
+  const matches = guide.getMatches();
   if (matches.length === 0) {
-    startWaitingForMatches(userInput);
+    startWaitingForMatches(guide);
     return;
   }
 
-  mountClickGuide(userInput, matches);
+  mountClickGuide(guide, matches);
+}
+
+function startClickGuide(userInput: UserInputConfig) {
+  const xpath = (userInput.transactionXpath || '').trim();
+  if (!xpath) return;
+  showClickGuide({
+    ...resolveUserInputTiming(userInput),
+    getMatches: () => getVisibleXpathMatches(xpath, document),
+    promptText: userInput.promptText,
+  });
+}
+
+function startCaptureHighlight(value: CaptureHighlight['highlight'], expectedUrl: string): void {
+  const highlight = captureHighlight({ highlight: value });
+  if (!highlight || `${location.origin}${location.pathname}` !== expectedUrl) {
+    throw new Error('Provider page changed before highlighting.');
+  }
+  teardownFn?.();
+  const getMatches = () => {
+    if (`${location.origin}${location.pathname}` !== expectedUrl) return [];
+    return Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]'))
+      .filter((link) => {
+        try {
+          const url = new URL(link.href, location.href);
+          return (
+            url.origin === location.origin &&
+            !url.username &&
+            !url.password &&
+            url.pathname.startsWith(highlight.pathPrefix) &&
+            !link.closest('form, [inert], [hidden]') &&
+            !link.hasAttribute('download') &&
+            window.getComputedStyle(link).opacity !== '0' &&
+            isVisible(link)
+          );
+        } catch {
+          return false;
+        }
+      })
+      .slice(0, 100);
+  };
+  showClickGuide({
+    getMatches,
+    promptText: 'Select your payment',
+    waitForXpathMs: DEFAULT_WAIT_FOR_XPATH_MS,
+    pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
+    dismissOnSelect: true,
+  });
 }
 
 (function initClickGuide() {

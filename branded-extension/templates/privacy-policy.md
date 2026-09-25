@@ -19,8 +19,8 @@ your data.
 
 The Extension helps you prove a payment to {{WEBSITE}} without sharing your
 banking credentials. It processes payment data **locally on your device**,
-encrypts the session material before transmission, and shares only the resulting
-verification with {{WEBSITE}}. We do not sell your data and we do not track you.
+encrypts session material before transmission, and shares matched payment
+activity and verification results with {{WEBSITE}}. We do not sell your data and we do not track you.
 
 ## What the Extension accesses
 
@@ -39,33 +39,37 @@ The Extension only runs this process on the sites it supports
 
 ## What we do NOT do
 
-- We do **not** collect or store your passwords, cookies, or login sessions.
-  These never leave your device.
+- We do **not** persist your passwords, cookies, or login sessions. Raw cookies
+  and headers are not sent to the requesting website or to local plugins.
+  Encrypted session material is sent to the attestation service.
 - We do **not** persist your payment data. A verification run is held in memory
-  for the duration of that run and discarded afterward; the Extension uses no
-  local storage and nothing survives a browser restart.
+  for the duration of that run and discarded afterward. The Extension stores
+  only approved plugin JSON and connected-site origins until you remove them
+  in Settings or uninstall the Extension.
 - We do **not** include analytics, telemetry, or tracking of any kind.
 - We do **not** sell, rent, or share your personal data with third parties for
   advertising.
 
 ## Data we transmit
 
-The only data the Extension transmits is the **encrypted session material** needed
-to produce a verification, sent to {{ATTESTATION_SERVICE_URL}}, and the resulting
-verification shared with {{WEBSITE}}. No other endpoints receive your data.
+The Extension sends **encrypted session material** to
+{{ATTESTATION_SERVICE_URL}} and matched activity or verification results to
+{{WEBSITE}}. It fetches provider templates and plugin registry hashes from
+{{API_BASE_URL}}. Provider request replay may contact the selected payment
+provider using your active browser session.
 
 ## Permissions
 
 The Extension requests the minimum permissions needed to perform verification:
 observing payment-provider responses, opening and returning tabs, injecting the
-on-page capture helper, and running encryption in an isolated document. See our
+on-page capture helper, storing plugin/site grants, and running encryption in an isolated document. See our
 store listing for the per-permission justification.
 
 ## Your choices
 
 - Uninstalling the Extension removes it and any in-memory state immediately.
-- You can decline any connection or capture prompt; the Extension does nothing
-  without your action.
+- You can decline a connection or plugin install prompt. You can remove stored
+  plugin and site grants in extension Settings.
 
 ## Changes
 

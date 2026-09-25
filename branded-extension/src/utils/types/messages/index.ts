@@ -1,10 +1,18 @@
+export { ApprovalToBackgroundAction } from './approval';
 export { PageToContentAction } from './pageToContent';
 export { ContentToPageAction } from './contentToPage';
 export { BackgroundToContentAction } from './backgroundToContent';
 export { ContentToBackgroundAction } from './contentToBackground';
 export { OffscreenToBackgroundAction } from './offscreenToBackground';
 export { BackgroundToOffscreenAction } from './backgroundToOffscreen';
+export { ManagerToBackgroundAction } from './manager';
 
+export type {
+  ApprovalPrompt,
+  ApprovalRequest,
+  ApprovalRequestResponse,
+  ApprovalToBackgroundMessageType,
+} from './approval';
 export type {
   OpenNewTabPagePayload,
   PageToContentActionType,
@@ -18,6 +26,7 @@ export type {
 export type {
   BackgroundToContentActionType,
   BackgroundToContentMessageType,
+  ExecuteCapturePageActionResponse,
 } from './backgroundToContent';
 export type {
   ContentToBackgroundActionType,
@@ -29,6 +38,10 @@ export type {
 } from './offscreenToBackground';
 export type {
   BackgroundToOffscreenActionType,
-  ExtractMetadataOffscreenResponse,
   BackgroundToOffscreenMessageType,
+  ExecuteCaptureInteractionOffscreenResponse,
+  ExecuteCaptureProgramOffscreenResponse,
+  ExtractMetadataOffscreenResponse,
+  WarmCaptureSandboxOffscreenResponse,
 } from './backgroundToOffscreen';
+export type { ManagerToBackgroundMessageType } from './manager';

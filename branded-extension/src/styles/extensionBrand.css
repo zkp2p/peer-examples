@@ -1,0 +1,48 @@
+@import '../entries/Popup/theme.generated.css';
+
+:root {
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+  --peer-black: var(--background);
+  --peer-rich-black: var(--surface);
+  --peer-white: var(--text);
+  --peer-grey: var(--muted);
+  --peer-light-grey: var(--muted);
+  --peer-border-dark: var(--muted);
+  --peer-ignite-yellow: var(--brand);
+  --peer-error: #ef4444;
+  --peer-gradient-ignite: var(--brand);
+  --peer-gradient-ignite-hover: var(--accent);
+  --peer-font-body: inherit;
+  --peer-font-headline: inherit;
+  --peer-font-size-caption: 0.75rem;
+  --peer-font-size-label: 0.875rem;
+  --peer-font-size-button: 0.875rem;
+  --peer-font-size-h5: 1.125rem;
+  --peer-font-weight-medium: 500;
+  --peer-font-weight-semibold: 600;
+  --peer-letter-spacing-button: 0.02em;
+  --peer-line-height-body: 1.5;
+  --peer-line-height-relaxed: 1.6;
+  --peer-line-height-single: 1;
+  --peer-line-height-tight: 1.25;
+  --peer-radius-md: 0.5rem;
+  --peer-space-1: 0.25rem;
+  --peer-space-2: 0.5rem;
+  --peer-space-3: 0.75rem;
+  --peer-space-4: 1rem;
+  --peer-space-5: 1.25rem;
+  --peer-space-6: 1.5rem;
+  --peer-space-7: 1.75rem;
+  --peer-space-8: 2rem;
+  --peer-space-14: 3.5rem;
+  --peer-space-20: 5rem;
+  background: var(--background);
+  color: var(--text);
+  font-synthesis: none;
+}
+* { box-sizing: border-box; }
+html, body { min-height: 100%; margin: 0; background: var(--background); }
+body, button { font-family: inherit; }
+body { font-size: var(--peer-font-size-label); line-height: var(--peer-line-height-body); }
+button { appearance: none; }

@@ -31,9 +31,16 @@ Used to inject the on-page capture helper (a click-guide that points the user to
 the right transaction) and a success overlay into the provider tab during a
 verification run.
 
+## `storage`
+
+Used to retain only plugin JSON approved for a specific requesting origin and
+third-party connected-site origins. Captured requests, responses, credentials,
+payment values, and session material are never persisted. Users can remove
+grants in Settings.
+
 ## `offscreen`
 
-Used to run capture encryption and credential bundling in a DOM-less offscreen
+Used to run capture encryption and credential bundling in a offscreen
 document. Encryption is performed on-device before any session material is
 transmitted.
 
@@ -50,11 +57,14 @@ The Extension requests access only to:
 
 It does not request broad host access (no `<all_urls>`).
 
-## Remote code
+## Local capture plugins
 
-The Extension executes **no remote code**. All logic is bundled in the package.
-It fetches provider configuration data (JSON) and submits encrypted session
-material, but never loads or evaluates external scripts.
+The host application may supply a capture plugin JSON object containing source
+for `match`, `capture`, and optional `interact` hooks. After exact-origin user
+approval, the Extension runs it in the packaged QuickJS sandbox with no DOM,
+network, storage, or extension API access. The Extension never fetches plugin
+source from the API. The API registry supplies review hashes only. Review this
+capability against the current store policy before submission.
 
 ## Data usage certification
 

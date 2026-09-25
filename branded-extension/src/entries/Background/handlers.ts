@@ -11,6 +11,8 @@ import { logger } from '@utils/logger';
 
 const interceptRegexesByTabId = new Map<number, string[]>();
 const shouldReplayRequestInPageByTabId = new Map<number, boolean>();
+const requestCaptureHandlers = new Map<number, (request: RequestLog) => void>();
+const mainFrameNavigationHandlers = new Map<number, (url: string) => void>();
 let metadataRequestCapturedHandler: ((request: RequestLog) => void | Promise<void>) | null = null;
 
 export function setMetadataRequestCapturedHandler(
@@ -25,6 +27,24 @@ export function setInterceptPatterns(patterns: string[], tabId: number): void {
 
 export function clearInterceptPatterns(tabId: number): void {
   interceptRegexesByTabId.delete(tabId);
+  requestCaptureHandlers.delete(tabId);
+  mainFrameNavigationHandlers.delete(tabId);
+}
+
+export function setRequestCaptureHandler(
+  tabId: number,
+  handler: (request: RequestLog) => void,
+): void {
+  requestCaptureHandlers.set(tabId, handler);
+}
+
+/**
+ * Observe top-level document navigations for a plugin capture tab. Only a
+ * main-frame request starts a new document; `tabs.onUpdated` loading status
+ * also fires for late subframe loads and same-document history changes.
+ */
+export function setMainFrameNavigationHandler(tabId: number, handler: (url: string) => void): void {
+  mainFrameNavigationHandlers.set(tabId, handler);
 }
 
 export function setShouldReplayRequestInPage(shouldReplayRequest: boolean, tabId: number) {
@@ -45,12 +65,16 @@ function shouldReplayInPage(tabId: number): boolean {
   return shouldReplayRequestInPageByTabId.get(tabId) ?? false;
 }
 
-function isRelevantRequestType(type: chrome.webRequest.ResourceType): boolean {
-  return type === 'xmlhttprequest' || type === 'main_frame';
-}
-
-function isExtensionInitiated(initiator?: string): boolean {
-  return Boolean(initiator && initiator.includes(chrome.runtime.id));
+function isRelevantRequest(
+  type: chrome.webRequest.ResourceType,
+  tabId: number,
+  initiator?: string,
+): boolean {
+  if (type !== 'xmlhttprequest' && type !== 'main_frame') return false;
+  if (!initiator?.includes(chrome.runtime.id)) return true;
+  // Plugin page capture includes navigations opened by the extension itself.
+  // Continue excluding extension fetches and preserve legacy filtering.
+  return type === 'main_frame' && requestCaptureHandlers.has(tabId);
 }
 
 function decodeRequestBody(raw: chrome.webRequest.UploadData[] | undefined): string | undefined {
@@ -71,7 +95,7 @@ export const onSendHeaders = (details: chrome.webRequest.WebRequestHeadersDetail
   void mutex.runExclusive(async () => {
     const { method, tabId, requestId, type, initiator, url } = details;
 
-    if (!isRelevantRequestType(type) || isExtensionInitiated(initiator)) {
+    if (!isRelevantRequest(type, tabId, initiator)) {
       return;
     }
     if (!shouldIntercept(url, tabId) || method === 'OPTIONS' || method === 'HEAD') {
@@ -94,6 +118,12 @@ export const onSendHeaders = (details: chrome.webRequest.WebRequestHeadersDetail
 };
 
 export const onBeforeRequest = (details: chrome.webRequest.WebRequestBodyDetails) => {
+  // Prerendered documents do not replace the visible one until activation.
+  // documentLifecycle (Chrome 106+) is missing from the bundled webRequest types.
+  const { documentLifecycle } = details as { documentLifecycle?: string };
+  if (details.type === 'main_frame' && details.frameId === 0 && documentLifecycle !== 'prerender') {
+    mainFrameNavigationHandlers.get(details.tabId)?.(details.url);
+  }
   const replayRequestBody = details.requestBody?.raw
     ? decodeRequestBody(details.requestBody.raw)
     : undefined;
@@ -111,7 +141,7 @@ export const onBeforeRequest = (details: chrome.webRequest.WebRequestBodyDetails
   }
   void mutex.runExclusive(async () => {
     const { method, requestBody, tabId, requestId, type, initiator, url } = details;
-    if (!isRelevantRequestType(type) || isExtensionInitiated(initiator)) {
+    if (!isRelevantRequest(type, tabId, initiator)) {
       return;
     }
     if (!shouldIntercept(url, tabId) || method === 'OPTIONS' || method === 'HEAD') {
@@ -145,7 +175,7 @@ export const onResponseStarted = (details: chrome.webRequest.WebResponseHeadersD
   }
   void mutex.runExclusive(async () => {
     const { method, responseHeaders, tabId, requestId, statusCode, type, initiator, url } = details;
-    if (!isRelevantRequestType(type) || isExtensionInitiated(initiator)) {
+    if (!isRelevantRequest(type, tabId, initiator)) {
       return;
     }
     if (!shouldIntercept(url, tabId) || method === 'OPTIONS' || method === 'HEAD') {
@@ -170,12 +200,20 @@ export const onResponseStarted = (details: chrome.webRequest.WebResponseHeadersD
       timestamp: Date.now(),
     };
 
+    const captureRequest = requestCaptureHandlers.get(tabId);
+    if (captureRequest) {
+      // Plugin matching/replay must not hold the legacy capture mutex.
+      captureRequest(requestLog);
+      return;
+    }
+
     const response = shouldReplayInPage(tabId)
       ? await replayRequestInPage(tabId, requestLog)
       : await replayRequest(requestLog);
     const requestWithBody: RequestLog = {
       ...requestLog,
       responseBody: response.text,
+      responseStatus: response.status,
     };
 
     cache.set(requestId, requestWithBody);

@@ -1,13 +1,19 @@
 export {
+  ApprovalToBackgroundAction,
   PageToContentAction,
   ContentToPageAction,
   BackgroundToContentAction,
   ContentToBackgroundAction,
   OffscreenToBackgroundAction,
   BackgroundToOffscreenAction,
+  ManagerToBackgroundAction,
 } from './messages';
 
 export type {
+  ApprovalPrompt,
+  ApprovalRequest,
+  ApprovalRequestResponse,
+  ApprovalToBackgroundMessageType,
   PageToContentActionType,
   PageToContentMessageType,
   OpenNewTabPagePayload,
@@ -15,23 +21,35 @@ export type {
   ContentToPageMessageType,
   BackgroundToContentActionType,
   BackgroundToContentMessageType,
+  ExecuteCapturePageActionResponse,
   ContentToBackgroundActionType,
   ContentToBackgroundMessageType,
   OffscreenToBackgroundActionType,
   OffscreenToBackgroundMessageType,
   BackgroundToOffscreenActionType,
+  ExecuteCaptureInteractionOffscreenResponse,
+  ExecuteCaptureProgramOffscreenResponse,
   ExtractMetadataOffscreenResponse,
+  WarmCaptureSandboxOffscreenResponse,
   BackgroundToOffscreenMessageType,
   MetadataMessageType,
+  ManagerToBackgroundMessageType,
 } from './messages';
 
+export type {
+  CaptureNetworkEvent,
+  CaptureParams,
+  CapturePageAction,
+  CapturePageActionResponse,
+  CapturePageElement,
+  CaptureMatchResult,
+  CaptureProgramResult,
+  CaptureReplayTarget,
+  ResolvedCapturePageAction,
+} from './captureProgram';
+
 export type ParamSelectorType = 'jsonPath' | 'regex' | 'xPath';
-export type ParamSourceType =
-  | 'responseBody'
-  | 'requestBody'
-  | 'requestHeaders'
-  | 'responseHeaders'
-  | 'url';
+export type ParamSourceType = 'responseBody' | 'requestBody' | 'url';
 
 export interface ParamSelector {
   type: ParamSelectorType;

@@ -23,10 +23,6 @@ type ReplayTarget = {
   url: string;
 };
 
-export type ReplayConstraints = {
-  sameOriginOnly?: boolean;
-};
-
 export function findMatchingRequest(
   requests: RequestLog[],
   method: string,
@@ -83,11 +79,7 @@ export function parseRequestBody(request: RequestLog, preprocessRegex?: string):
   }
 }
 
-function resolveReplayTarget(
-  fallbackRequest: RequestLog,
-  providerConfig: ProviderSettings,
-  constraints: ReplayConstraints = {},
-): ReplayTarget {
+function resolveReplayTarget(providerConfig: ProviderSettings): ReplayTarget {
   const metadataUrl = providerConfig.metadata.metadataUrl;
   const target: ReplayTarget = metadataUrl
     ? {
@@ -101,39 +93,14 @@ function resolveReplayTarget(
         url: providerConfig.url,
       };
 
-  if (!constraints.sameOriginOnly) {
-    return target;
-  }
-
-  let replayUrl: URL;
-  let contextUrl: URL;
-  try {
-    replayUrl = new URL(target.url);
-    contextUrl = new URL(fallbackRequest.url);
-  } catch (error) {
-    throw new Error(`Invalid replay target: ${String(error)}`);
-  }
-
-  if (replayUrl.protocol !== 'https:' || replayUrl.origin !== contextUrl.origin) {
-    throw new Error(
-      `Unsafe replay target: origin mismatch (target=${replayUrl.href}, contextOrigin=${contextUrl.origin})`,
-    );
-  }
-  if (target.method.toUpperCase() === 'POST' && replayUrl.href !== contextUrl.href) {
-    throw new Error(
-      `Unsafe replay target: POST replay URL must match the captured request URL (target=${replayUrl.href}, captured=${contextUrl.href})`,
-    );
-  }
-
   return target;
 }
 
 export function buildReplayRequest(
   fallbackRequest: RequestLog,
   providerConfig: ProviderSettings,
-  constraints: ReplayConstraints = {},
 ): RequestLog {
-  const target = resolveReplayTarget(fallbackRequest, providerConfig, constraints);
+  const target = resolveReplayTarget(providerConfig);
 
   return {
     ...fallbackRequest,
@@ -147,9 +114,8 @@ export async function replayFallback(
   fallbackRequest: RequestLog,
   providerConfig: ProviderSettings,
   responseType: ReplayResponseType = 'json',
-  constraints: ReplayConstraints = {},
 ): Promise<unknown> {
-  const replayRequest = buildReplayRequest(fallbackRequest, providerConfig, constraints);
+  const replayRequest = buildReplayRequest(fallbackRequest, providerConfig);
 
   if (providerConfig.metadata.shouldReplayRequestInPage) {
     const response = await safeChromeRuntimeSendMessage<{
@@ -342,16 +308,6 @@ export function extractValue(
       break;
     case 'requestBody':
       sourceData = dataRequest.requestBody || '';
-      break;
-    case 'requestHeaders':
-      // Convert headers array to JSON string for extraction
-      const requestHeadersMap = headersToMap(dataRequest.requestHeaders);
-      sourceData = JSON.stringify(requestHeadersMap);
-      break;
-    case 'responseHeaders':
-      // Convert headers array to JSON string for extraction
-      const responseHeadersMap = headersToMap(dataRequest.responseHeaders || []);
-      sourceData = JSON.stringify(responseHeadersMap);
       break;
     case 'url':
       sourceData = dataRequest.url;

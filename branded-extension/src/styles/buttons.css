@@ -1,0 +1,95 @@
+.peer-button {
+  height: 48px;
+  padding: var(--peer-space-4) var(--peer-space-6);
+  border: 0;
+  border-radius: var(--peer-radius-md);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--peer-white);
+  font-size: var(--peer-font-size-button);
+  font-weight: var(--peer-font-weight-semibold);
+  letter-spacing: var(--peer-letter-spacing-button);
+  text-align: center;
+  text-transform: uppercase;
+  transition:
+    background 0.25s ease-out,
+    opacity 0.2s ease-out,
+    transform 0.15s ease-out;
+}
+
+.peer-button:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.peer-button:focus-visible {
+  outline: 1px solid rgb(255 255 255 / 30%); /* design-check: allow focus-outline -- visible 1px ring; the zero is in the color opacity, not the outline width */
+  outline-offset: 2px;
+}
+
+.peer-button-primary {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: var(--peer-gradient-ignite);
+  color: var(--brand-contrast);
+}
+
+.peer-button-primary::before {
+  position: absolute;
+  z-index: -1; /* design-check: allow arbitrary-z-index -- local hover layer behind text inside the button's isolated stacking context */
+  inset: 0;
+  border-radius: inherit;
+  background: var(--peer-gradient-ignite-hover);
+  content: '';
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease-out;
+}
+
+.peer-button-primary:hover:not(:disabled)::before {
+  opacity: 1;
+}
+
+.peer-button-primary:active:not(:disabled)::before {
+  opacity: 0;
+}
+
+.peer-button-secondary {
+  border: 1px solid transparent;
+  background: var(--peer-white);
+  color: var(--peer-black);
+}
+
+.peer-button-secondary:hover:not(:disabled) {
+  background: var(--peer-light-grey);
+}
+
+.peer-button-secondary:active:not(:disabled) {
+  background: var(--peer-white);
+}
+
+.peer-button-tertiary {
+  background: var(--peer-rich-black);
+}
+
+.peer-button-tertiary:hover:not(:disabled) {
+  background: var(--peer-border-dark);
+}
+
+.peer-button-tertiary:active:not(:disabled) {
+  background: var(--peer-rich-black);
+}
+
+.peer-button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .peer-button,
+  .peer-button-primary::before {
+    transition: none;
+  }
+}

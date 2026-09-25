@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  extractTransactionsFromPayload,
-  resolveMetadataPayload,
-  resolveParamExtractionResponseBodyString,
-} from '@utils/metadataEngine';
+import { extractTransactionsFromPayload, resolveMetadataPayload } from '@utils/metadataEngine';
 import type { RequestLog } from '@entries/Background/requestLog';
 import type { ProviderSettings } from '@utils/types';
 
@@ -11,7 +7,7 @@ function buildRequest(overrides: Partial<RequestLog> = {}): RequestLog {
   return {
     initiator: 'https://provider.example',
     method: 'GET',
-    requestHeaders: [{ name: 'authorization', value: 'test-auth-value' }],
+    requestHeaders: [{ name: 'authorization', value: 'Bearer token' }],
     requestId: 'request-1',
     responseBody: JSON.stringify({
       transactions: [{ amount: '12.34', id: 'payment-1' }],
@@ -68,7 +64,7 @@ describe('metadataEngine.resolveMetadataPayload', () => {
       bodyStr: '{"transactions":[{"amount":"12.34","id":"payment-1"}]}',
       request,
     });
-    expect(extractTransactionsFromPayload(payload, buildProviderConfig())).toEqual([
+    expect(extractTransactionsFromPayload(payload, buildProviderConfig(), false)).toEqual([
       {
         amount: '12.34',
         hidden: false,
@@ -166,23 +162,65 @@ describe('metadataEngine.resolveMetadataPayload', () => {
     });
   });
 
-  it('reuses an existing metadata payload for param extraction response bodies', async () => {
-    const request = buildRequest();
-    await expect(
-      resolveParamExtractionResponseBodyString({
-        dataRequest: request,
-        metadataPayload: {
-          bodyJson: { ok: true },
-          bodyStr: '{"ok":true}',
+  it('extracts Alipay TRADE_NO from the captured HTML in the offscreen phase', () => {
+    vi.stubGlobal('XPathResult', { ORDERED_NODE_SNAPSHOT_TYPE: 7, STRING_TYPE: 2 });
+    vi.stubGlobal(
+      'DOMParser',
+      class {
+        parseFromString(): Document {
+          return {
+            evaluate: (expression: string, _context: Node, _resolver: null, resultType: number) =>
+              resultType === 7
+                ? {
+                    snapshotItem: (index: number) => ({ rowIndex: index }),
+                    snapshotLength: 2,
+                  }
+                : {
+                    stringValue: expression.includes('[1 + 1]') ? '2026081300000001' : '',
+                  },
+          } as unknown as Document;
+        }
+      },
+    );
+
+    const request = buildRequest({
+      responseBody: '<html><table id="tradeRecordsIndex"></table></html>',
+    });
+    expect(
+      extractTransactionsFromPayload(
+        {
+          bodyStr: String(request.responseBody),
           request,
         },
-        providerConfig: buildProviderConfig({
+        buildProviderConfig({
           metadata: {
             ...buildProviderConfig().metadata,
-            metadataUrl: 'https://provider.example/api/metadata',
+            transactionsExtraction: {
+              transactionXPathListSelector: "//table[@id='tradeRecordsIndex']//tr",
+            },
           },
+          paramNames: ['TRADE_NO'],
+          paramSelectors: [
+            {
+              type: 'xPath',
+              value:
+                "normalize-space((//table[@id='tradeRecordsIndex']//a[contains(@class,'J-tradeNo')]/@data-clipboard-text)[{{INDEX}} + 1])",
+            },
+          ],
         }),
-      }),
-    ).resolves.toBe('{"ok":true}');
+        true,
+      ),
+    ).toEqual([
+      {
+        hidden: false,
+        originalIndex: 0,
+        params: {},
+      },
+      {
+        hidden: false,
+        originalIndex: 1,
+        params: { TRADE_NO: '2026081300000001' },
+      },
+    ]);
   });
 });
