@@ -1,90 +1,57 @@
 # Security invariants
 
-These are the properties that make this extension safe to install and to ship.
-Rebranding **must not** break any of them. Treat this list as a review checklist
-before every release.
+Rebranding must preserve these boundaries. Review them before each release.
 
-If you want to change something here to add a feature, stop and reconsider. This
-page covers the properties users and reviewers rely on.
+## Capture and encryption
 
-## Do not touch: capture & encryption internals
+- Captured session material stays in memory and is encrypted in the offscreen
+  document before it leaves the device. Never log or persist it.
+- The legacy path uses only the configured provider template. An explicit local
+  plugin path never falls back to that template. Matching runs before response
+  replay; unrelated traffic is ignored.
+- A plugin runs in the manifest sandbox with no DOM, network, storage,
+  filesystem, timers, or `chrome.*`. Only bounded `match`, `capture`, and
+  `interact` results cross to the privileged host. The host validates origins,
+  replay targets, GraphQL queries, navigation, and page actions.
+- `webRequest` observes requests and never blocks or modifies them.
 
-The capture-and-encryption pipeline is the security boundary. Leave it alone
-unless you are deliberately extending the protocol.
+## Stored state
 
-- **Encryption happens in the offscreen document** (`entries/Offscreen/*`) using
-  the Peer SDK. Captured material is encrypted before it leaves the device. Do
-  not move encryption into the page, the content script, or a remote call, and
-  do not log decrypted material.
-- **Request matching is allow-listed.** Background only acts on requests that
-  match the active provider config (`providerRequestMatcher.ts`); everything else
-  is ignored. Do not widen the match to "capture everything."
-- **`webRequest` observes, it never blocks.** There is no `webRequestBlocking`
-  and no request modification. Keep it that way.
-- The SDK encryption calls (`createEncryptedBuyerTeeSessionMaterial`,
-  `apiCreateSellerCredentialBundle`) are the protocol. Don't reimplement or
-  bypass them.
+`chrome.storage.local` stores only approved plugin JSON and third-party
+connection origins. Access is restricted to trusted extension contexts. It
+never stores requests, responses, cookies, credentials, payment values, capture
+output, or proof history. A capture session is tab-scoped memory and is removed
+when it completes or the tab closes.
 
-## Stateless and tab-scoped
+## Plugin consent
 
-- A capture run lives in an **in-memory map keyed by the auth tab id**
-  (`sessionsByAuthTabId` in `entries/Background/index.ts`). When the tab closes
-  or the run finishes, the session is deleted (`cleanupSession`).
-- There is **no `storage` permission** and the code uses **no `chrome.storage`,
-  `localStorage`, `sessionStorage`, or `indexedDB`.** Nothing about a run
-  survives a browser restart. Keep it that way; persisting captured material or
-  credentials would turn a transient capture into a stored secret.
+- Every new or changed plugin requires approval for the exact requesting
+  origin, including scheme, subdomain, and port. The extension computes the
+  digest itself and checks the configured API's plugin registry. Website claims
+  of trust are ignored.
+- A matching registry hash is a disclosure, not automatic consent. Unknown
+  hashes and failed registry requests require explicit risk acknowledgement.
+- Plugin origins must be HTTPS origins covered by `hostDomains`. Rebrand before
+  installing plugins for a new provider. Settings can remove each site's grant.
 
-## No stored secrets, no keys
+## Permissions and endpoints
 
-- The extension bundles **no API keys, tokens, private keys, or witness/admin
-  endpoints.** The only endpoints it knows are the **public** API base and
-  attestation service, and they live in `brand.config.json` as plain
-  configuration.
-- If your deployment needs a key for your own backend, do not hardcode it here.
-  Keep the extension keyless; authenticate at your backend instead.
+- `host_permissions` come from configured provider, app, API, and attestation
+  origins. Keep them narrow; do not add `<all_urls>`, blocking webRequest, or
+  cookies permission.
+- Runtime endpoints come from `brand.config.json`. No API keys, tokens, or
+  private service URLs belong in the extension.
+- No analytics or remote plugin source loading. The registry contains hashes
+  only; provider replay and encrypted attestation calls are part of capture.
 
-## No telemetry
+## Protocol surface
 
-- The extension ships **no analytics, tracking, or telemetry.** `logger` only
-  writes to the console, and only in development builds.
-- The `data-peer-vendor` page attribute exists so your *host app* can record
-  which extension served a session. It is set on the page, not phoned home by
-  the extension.
-- The only network calls the extension makes are: fetching the **provider
-  template** from your API, **replaying the captured request** when a provider
-  flow requires it, and submitting encrypted session material to the attestation
-  service. If you add another endpoint, justify it in your privacy policy and
-  store listing.
+The `window.peer` global, `peer#initialized` event, `data-peer-injected` and
+`data-peer-vendor` attributes, and message action names remain fixed for host
+interoperability. Set only the vendor *value* through `brand.config.json`.
 
-## Permissions stay minimal
+## Pre-release check
 
-- Requested permissions are exactly: `offscreen`, `webRequest`, `tabs`,
-  `scripting`. Don't add `storage`, `cookies`, `<all_urls>`, `webRequestBlocking`,
-  `declarativeNetRequest`, or `nativeMessaging` without a concrete, reviewable
-  reason.
-- Host permissions are narrowed to your configured domains. See
-  [`host-permissions.md`](host-permissions.md).
-
-## The protocol surface is fixed
-
-Renaming these breaks interoperability with host apps and other extensions that
-implement the protocol:
-
-- the `window.peer` global and its method names,
-- the `peer#initialized` event,
-- the `data-peer-injected` and `data-peer-vendor` attributes,
-- the message `type` / `action` strings in `utils/types/messages/`.
-
-`vendorId` is the *value* of `data-peer-vendor` and is yours to set. The
-attribute *name* is not.
-
-## Pre-release checklist
-
-- [ ] `host_permissions` in `build/manifest.json` contains only your domains +
-      the API/attestation origins.
-- [ ] No new entries in `permissions`.
-- [ ] No `chrome.storage` / `localStorage` / network calls added beyond the two
-      above.
-- [ ] No secrets, keys, or non-public endpoints committed.
-- [ ] `npm run typecheck && npm run test` pass.
+Run `npm run rebrand && npm run typecheck && npm run test && npm run build`.
+Inspect `build/manifest.json` for the expected host domains, sandbox page,
+settings page, and `storage` permission.

@@ -49,10 +49,11 @@ export const safeChromeTabsSendMessage = <TResponse = void>(
   tabId: number,
   message: unknown,
   context?: string,
+  options?: chrome.tabs.MessageSendOptions & { documentId?: string },
 ): Promise<TResponse | undefined> =>
   new Promise((resolve) => {
     try {
-      chrome.tabs.sendMessage(tabId, message as any, (response) => {
+      const callback = (response: unknown) => {
         const lastError = chrome.runtime.lastError;
         if (lastError) {
           if (isClosedMessagePortError(lastError.message)) {
@@ -70,7 +71,13 @@ export const safeChromeTabsSendMessage = <TResponse = void>(
           return;
         }
         resolve(response as TResponse);
-      });
+      };
+
+      if (options) {
+        chrome.tabs.sendMessage(tabId, message as any, options, callback);
+      } else {
+        chrome.tabs.sendMessage(tabId, message as any, callback);
+      }
     } catch (error) {
       logger.warn(formatPrefix('chrome.tabs.sendMessage threw', message, context), error);
       resolve(undefined);

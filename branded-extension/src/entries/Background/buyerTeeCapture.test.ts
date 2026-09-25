@@ -1,12 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { MetadataMessageType, ProviderSettings } from '@utils/types';
+import { attachBuyerTeeParams } from '@utils/metadataEngine';
 
 import type { RequestLog } from './requestLog';
-import {
-  prepareBuyerTeeCaptureMaterial,
-  shouldResolveBuyerTeeParamResponseBody,
-} from './buyerTeeCapture';
+import { prepareBuyerTeeCaptureMaterial } from './buyerTeeCapture';
 
 function buildProviderConfig(overrides: Partial<ProviderSettings> = {}): ProviderSettings {
   return {
@@ -52,10 +50,39 @@ function buildRequest(overrides: Partial<RequestLog> = {}): RequestLog {
   };
 }
 
+function prepareTestCaptureMaterial({
+  metadata,
+  paramResponseBodyString,
+  providerConfig,
+  request,
+}: {
+  metadata?: MetadataMessageType[];
+  paramResponseBodyString?: string;
+  providerConfig: ProviderSettings;
+  request: RequestLog | null;
+}) {
+  const metadataWithParams =
+    request && metadata
+      ? attachBuyerTeeParams(
+          metadata,
+          {
+            request,
+            bodyStr: paramResponseBodyString ?? String(request.responseBody ?? ''),
+          },
+          providerConfig,
+        )
+      : metadata;
+  return prepareBuyerTeeCaptureMaterial({ metadata: metadataWithParams, request });
+}
+
 describe('prepareBuyerTeeCaptureMaterial', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('builds encrypted-session input from all captured request headers', () => {
     expect(
-      prepareBuyerTeeCaptureMaterial({
+      prepareTestCaptureMaterial({
         providerConfig: buildProviderConfig(),
         request: buildRequest(),
       }),
@@ -70,7 +97,7 @@ describe('prepareBuyerTeeCaptureMaterial', () => {
 
   it('requires a captured request', () => {
     expect(() =>
-      prepareBuyerTeeCaptureMaterial({
+      prepareTestCaptureMaterial({
         providerConfig: buildProviderConfig(),
         request: null,
       }),
@@ -79,7 +106,7 @@ describe('prepareBuyerTeeCaptureMaterial', () => {
 
   it('captures available request headers without provider-specific header configuration', () => {
     expect(
-      prepareBuyerTeeCaptureMaterial({
+      prepareTestCaptureMaterial({
         providerConfig: buildProviderConfig(),
         request: buildRequest({ requestHeaders: [{ name: 'User-Agent', value: 'Chrome' }] }),
       }),
@@ -93,7 +120,7 @@ describe('prepareBuyerTeeCaptureMaterial', () => {
 
   it('builds verifier params from provider-template param selectors', () => {
     expect(
-      prepareBuyerTeeCaptureMaterial({
+      prepareTestCaptureMaterial({
         metadata: [
           {
             amount: '- $1.00',
@@ -139,7 +166,7 @@ describe('prepareBuyerTeeCaptureMaterial', () => {
 
   it('keeps rows with missing provider-template params for client-side selection', () => {
     expect(
-      prepareBuyerTeeCaptureMaterial({
+      prepareTestCaptureMaterial({
         metadata: [
           {
             amount: '- $1.00',
@@ -201,7 +228,7 @@ describe('prepareBuyerTeeCaptureMaterial', () => {
 
   it('does not synthesize selected row params when the provider template has no public params', () => {
     expect(
-      prepareBuyerTeeCaptureMaterial({
+      prepareTestCaptureMaterial({
         metadata: [
           {
             amount: '100',
@@ -235,7 +262,7 @@ describe('prepareBuyerTeeCaptureMaterial', () => {
 
   it('materializes raw provider-template param keys without adding index for strict schemas', () => {
     expect(
-      prepareBuyerTeeCaptureMaterial({
+      prepareTestCaptureMaterial({
         metadata: [
           {
             hidden: false,
@@ -277,9 +304,57 @@ describe('prepareBuyerTeeCaptureMaterial', () => {
     });
   });
 
+  it('captures Alipay Cookie material and the selected TRADE_NO without adding index', () => {
+    vi.stubGlobal('XPathResult', { STRING_TYPE: 2 });
+    vi.stubGlobal(
+      'DOMParser',
+      class {
+        parseFromString(): Document {
+          return {
+            evaluate: (expression: string) => ({
+              stringValue: expression.includes('[1 + 1]') ? '2026081300000001' : '',
+            }),
+          } as unknown as Document;
+        }
+      },
+    );
+
+    expect(
+      prepareTestCaptureMaterial({
+        metadata: [{ hidden: false, originalIndex: 1 }],
+        providerConfig: buildProviderConfig({
+          paramNames: ['TRADE_NO'],
+          paramSelectors: [
+            {
+              type: 'xPath',
+              value:
+                "normalize-space((//table[@id='tradeRecordsIndex']//tbody/tr[contains(@class,'J-item') and .//li[contains(@data-link,'send/queryTransferDetail.htm')]]//a[contains(@class,'J-tradeNo')]/@data-clipboard-text)[{{INDEX}} + 1])",
+            },
+          ],
+        }),
+        request: buildRequest({
+          requestHeaders: [{ name: 'Cookie', value: 'ALIPAYJSESSIONID=secret-session' }],
+          responseBody: '<html><table id="tradeRecordsIndex"></table></html>',
+        }),
+      }),
+    ).toEqual({
+      metadata: [
+        {
+          hidden: false,
+          originalIndex: 1,
+          params: { TRADE_NO: '2026081300000001' },
+        },
+      ],
+      params: [{ TRADE_NO: '2026081300000001' }],
+      sessionMaterial: {
+        Cookie: 'ALIPAYJSESSIONID=secret-session',
+      },
+    });
+  });
+
   it('materializes multiple provider-template params without adding index', () => {
     expect(
-      prepareBuyerTeeCaptureMaterial({
+      prepareTestCaptureMaterial({
         metadata: [
           {
             hidden: false,
@@ -332,7 +407,7 @@ describe('prepareBuyerTeeCaptureMaterial', () => {
 
   it('uses the resolved metadata response body for provider-template param selectors', () => {
     expect(
-      prepareBuyerTeeCaptureMaterial({
+      prepareTestCaptureMaterial({
         metadata: [
           {
             hidden: false,
@@ -385,7 +460,7 @@ describe('prepareBuyerTeeCaptureMaterial', () => {
 
   it('does not copy request-body params into public buyer TEE params', () => {
     expect(
-      prepareBuyerTeeCaptureMaterial({
+      prepareTestCaptureMaterial({
         metadata: [{ hidden: false, originalIndex: 0 }],
         providerConfig: buildProviderConfig({
           paramNames: ['REQUEST_BODY'],
@@ -412,7 +487,7 @@ describe('prepareBuyerTeeCaptureMaterial', () => {
 
   it('keeps selected rows when configured public buyer TEE params are unavailable', () => {
     expect(
-      prepareBuyerTeeCaptureMaterial({
+      prepareTestCaptureMaterial({
         metadata: [{ hidden: false, originalIndex: 0 }],
         providerConfig: buildProviderConfig({
           paramNames: ['PAYMENT_ID'],
@@ -436,8 +511,8 @@ describe('prepareBuyerTeeCaptureMaterial', () => {
   });
 
   it('does not synthesize index zero when public buyer TEE metadata is absent', () => {
-    expect(() =>
-      prepareBuyerTeeCaptureMaterial({
+    expect(
+      prepareTestCaptureMaterial({
         providerConfig: buildProviderConfig({
           paramNames: ['PAYMENT_ID'],
           paramSelectors: [
@@ -451,12 +526,18 @@ describe('prepareBuyerTeeCaptureMaterial', () => {
           responseBody: JSON.stringify([{ id: 'payment-1' }]),
         }),
       }),
-    ).toThrow('Session metadata unavailable. Re-authenticate and try again.');
+    ).toEqual({
+      params: [],
+      sessionMaterial: {
+        cookie: 'session=abc',
+        'User-Agent': 'Chrome',
+      },
+    });
   });
 
   it('uses metadata position when original index is unavailable', () => {
     expect(
-      prepareBuyerTeeCaptureMaterial({
+      prepareTestCaptureMaterial({
         metadata: [{ hidden: false } as MetadataMessageType],
         providerConfig: buildProviderConfig({
           paramNames: ['PAYMENT_ID'],
@@ -481,29 +562,30 @@ describe('prepareBuyerTeeCaptureMaterial', () => {
     });
   });
 
-  it('detects when provider-template params need the zkTLS response-body resolver', () => {
+  it('does not disclose request-body selectors as public params', () => {
     expect(
-      shouldResolveBuyerTeeParamResponseBody(
-        buildProviderConfig({
-          paramNames: ['PAYMENT_ID'],
-          paramSelectors: [{ type: 'jsonPath', value: '$[{{INDEX}}].id' }],
-        }),
-      ),
-    ).toBe(true);
-    expect(
-      shouldResolveBuyerTeeParamResponseBody(
-        buildProviderConfig({
+      prepareTestCaptureMaterial({
+        metadata: [{ hidden: false, originalIndex: 0 }],
+        providerConfig: buildProviderConfig({
           paramNames: ['REQUEST_BODY'],
           paramSelectors: [{ source: 'requestBody', type: 'regex', value: '^(.+)$' }],
         }),
-      ),
-    ).toBe(false);
-    expect(shouldResolveBuyerTeeParamResponseBody(buildProviderConfig())).toBe(false);
+        request: buildRequest({ method: 'POST', requestBody: 'secret=1' }),
+      }),
+    ).toEqual({
+      metadata: [{ hidden: false, originalIndex: 0, params: {} }],
+      params: [{}],
+      sessionMaterial: {
+        body: 'secret=1',
+        cookie: 'session=abc',
+        'User-Agent': 'Chrome',
+      },
+    });
   });
 
   it('adds captured request body to buyer TEE session material', () => {
     expect(
-      prepareBuyerTeeCaptureMaterial({
+      prepareTestCaptureMaterial({
         providerConfig: buildProviderConfig(),
         request: buildRequest({ method: 'POST', requestBody: 'secret=1' }),
       }),
@@ -519,7 +601,7 @@ describe('prepareBuyerTeeCaptureMaterial', () => {
 
   it('adds captured form data to buyer TEE session material body', () => {
     expect(
-      prepareBuyerTeeCaptureMaterial({
+      prepareTestCaptureMaterial({
         providerConfig: buildProviderConfig(),
         request: buildRequest({
           formData: {

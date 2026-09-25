@@ -1,0 +1,126 @@
+body {
+  min-width: 0;
+}
+
+.manager-shell {
+  width: min(100%, 528px);
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: var(--peer-space-14) var(--peer-space-6) var(--peer-space-20);
+}
+
+.manager-header {
+  padding-bottom: var(--peer-space-2);
+}
+
+.manager-brand-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--peer-space-7);
+}
+
+.manager-logo {
+  width: auto;
+  height: 24px;
+  display: block;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-family: var(--peer-font-headline);
+  font-size: var(--peer-font-size-h5);
+  font-weight: var(--peer-font-weight-semibold);
+  line-height: var(--peer-line-height-tight);
+  text-transform: uppercase;
+}
+
+.manager-section {
+  margin-top: var(--peer-space-8);
+}
+
+h2 {
+  margin-bottom: var(--peer-space-3);
+  font-size: var(--peer-font-size-label);
+  font-weight: var(--peer-font-weight-semibold);
+}
+
+.manager-list {
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--peer-border-dark);
+  list-style: none;
+}
+
+.manager-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--peer-space-4);
+  min-height: 72px;
+  padding: var(--peer-space-4) 0;
+  border-bottom: 1px solid var(--peer-border-dark);
+}
+
+.item-copy {
+  min-width: 0;
+  display: grid;
+  gap: var(--peer-space-1);
+}
+
+strong,
+.item-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+strong {
+  color: var(--peer-white);
+  font-size: var(--peer-font-size-label);
+  font-weight: var(--peer-font-weight-semibold);
+}
+
+.item-meta {
+  color: var(--peer-grey);
+  font-size: var(--peer-font-size-caption);
+}
+
+.remove-button {
+  min-width: 108px;
+  flex: 0 0 auto;
+}
+
+.empty-state,
+.state-message,
+.loading {
+  color: var(--peer-grey);
+  font-size: var(--peer-font-size-label);
+  line-height: var(--peer-line-height-relaxed);
+}
+
+.empty-state {
+  padding: var(--peer-space-4) 0;
+  border-top: 1px solid var(--peer-border-dark);
+  border-bottom: 1px solid var(--peer-border-dark);
+}
+
+.state-message,
+.loading {
+  margin: 0;
+  padding: var(--peer-space-6) 0;
+}
+
+.state-error {
+  color: var(--peer-error);
+}
+
+@media (max-width: 520px) {
+  .manager-shell {
+    padding-top: var(--peer-space-8);
+  }
+}

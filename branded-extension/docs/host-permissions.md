@@ -12,13 +12,13 @@ and `rebrand` assembles them into the manifest:
 
 | Config field | Example | What it grants |
 | --- | --- | --- |
-| `hostDomains` | `https://*.example-bank.com/*` | Payment-platform sites where the **capture click-guide** runs during an auth flow. Content script: `txClickGuideLoader` only. |
+| `hostDomains` | `https://*.example-bank.com/*` | Payment-platform sites where the **capture click-guide** runs and local capture plugins may observe matched requests. Content script: `txClickGuideLoader` only. |
 | `appOrigins` | `https://app.acme-verify.example/*` | **Your** web app origins that may use `window.peer`. Content script: `contentScriptLoader` (the full injection). Also auto-approved for connection. |
 | `apiBaseUrl` + `attestationServiceUrl` | `https://api.zkp2p.xyz` | Backend `fetch` targets (provider templates + attestation). Added to `host_permissions` only; no content script. |
 
 `rebrand` writes them into three manifest sections:
 
-- `content_scripts` — `hostDomains` get the click-guide; `appOrigins` get the
+- `content_scripts` — `hostDomains` get the click-guide and permitted plugin origins; `appOrigins` get the
   `window.peer` injection.
 - `web_accessible_resources.matches` — `hostDomains` + `appOrigins`.
 - `host_permissions` — `hostDomains` + `appOrigins` + the API and attestation
@@ -36,7 +36,7 @@ and `rebrand` assembles them into the manifest:
    templates and submits to the attestation service; those two origins must be
    in `host_permissions` or the calls fail. They are added automatically from
    `apiBaseUrl` / `attestationServiceUrl`.
-4. **Don't add `<all_urls>` "to be safe."** If a capture needs a new platform,
+4. **Don't add `<all_urls>` "to be safe."** If a plugin or template capture needs a new platform,
    add that platform to `hostDomains` and re-run `rebrand`. Breadth is a
    liability, not a convenience.
 

@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { injectSpinner, startCountdownAndClose } from './authTabOverlay';
-import { clearSarCredentialCapture } from './sarCredentialFlow';
+import { injectSpinner } from './authTabOverlay';
 
-type MetadataRequest = {
+type MetadataHandler = (request: {
   initiator: string | null;
   method: string;
   requestHeaders: chrome.webRequest.HttpHeader[];
@@ -10,33 +9,55 @@ type MetadataRequest = {
   tabId: number;
   type: chrome.webRequest.ResourceType;
   url: string;
-};
+}) => Promise<void> | void;
 
-type MetadataHandler = (request: MetadataRequest) => Promise<void> | void;
+type RuntimeMessageListener = (
+  message: unknown,
+  sender: chrome.runtime.MessageSender,
+  sendResponse: (response?: unknown) => void,
+) => boolean | void;
 
-const extensionMocks = vi.hoisted(() => ({
+const mocks = vi.hoisted(() => ({
+  approval: vi.fn(),
+  executeScript: vi.fn(),
   metadataHandler: null as MetadataHandler | null,
+  openPluginSession: vi.fn(),
   runtimeSendMessage: vi.fn(),
   stageBuyerCapture: vi.fn(),
   stageSarCapture: vi.fn(),
+  tabsCreate: vi.fn(),
   tabsSendMessage: vi.fn(),
 }));
 
 vi.mock('@utils/extensionMessaging', () => ({
-  safeChromeRuntimeSendMessage: extensionMocks.runtimeSendMessage,
-  safeChromeTabsSendMessage: extensionMocks.tabsSendMessage,
+  safeChromeRuntimeSendMessage: mocks.runtimeSendMessage,
+  safeChromeTabsSendMessage: mocks.tabsSendMessage,
+}));
+vi.mock('@utils/extensionState', () => ({
+  getExtensionManagerState: vi.fn(async () => ({ connectedSites: [], plugins: [] })),
+  isConnectedSite: vi.fn(async () => false),
+  rememberConnectedSite: vi.fn(),
+  removeCapturePlugin: vi.fn(),
+  removeConnectedSite: vi.fn(),
+  restrictExtensionStorageAccess: vi.fn(async () => undefined),
 }));
 vi.mock('@utils/misc', () => ({ replayRequestInPage: vi.fn() }));
+vi.mock('./approvalWindow', () => ({
+  handleApprovalRuntimeMessage: vi.fn(() => false),
+  handleApprovalTabUpdated: vi.fn(),
+  handleApprovalWindowRemoved: vi.fn(),
+  requestExtensionApproval: mocks.approval,
+}));
 vi.mock('./authTabOverlay', () => ({
   injectSpinner: vi.fn(),
-  startCountdownAndClose: vi.fn(),
-  updateSpinnerToGreenAndStatic: vi.fn(),
+  showAuthSuccessAndWait: vi.fn(),
+  removeAuthOverlay: vi.fn(),
 }));
 vi.mock('./buyerTeeFlow', () => ({
   clearBuyerTeeCapture: vi.fn(),
   rememberBuyerTeeCapture: vi.fn(),
   resolveBuyerTeeCaptureConfig: vi.fn(() => ({ config: null, error: null })),
-  stageBuyerTeeCaptureForMetadata: extensionMocks.stageBuyerCapture,
+  stageBuyerTeeCaptureForMetadata: mocks.stageBuyerCapture,
 }));
 vi.mock('./cache', () => ({
   deleteCacheByTabId: vi.fn(),
@@ -50,37 +71,58 @@ vi.mock('./handlers', () => ({
   onSendHeaders: vi.fn(),
   setInterceptPatterns: vi.fn(),
   setMetadataRequestCapturedHandler: vi.fn((handler: MetadataHandler) => {
-    extensionMocks.metadataHandler = handler;
+    mocks.metadataHandler = handler;
   }),
   setShouldReplayRequestInPage: vi.fn(),
 }));
 vi.mock('./offscreenDocument', () => ({ ensureOffscreenDocument: vi.fn() }));
-vi.mock('./providerRequestMatcher', () => ({
-  isProviderContextRequest: vi.fn(() => true),
+vi.mock('./pluginCaptureSession', () => ({
+  cancelPluginCaptureSessions: vi.fn(),
+  handlePluginTabRemoved: vi.fn(() => false),
+  handlePluginTabUpdated: vi.fn(() => false),
+  openPluginCaptureSession: mocks.openPluginSession,
 }));
-vi.mock('./sarCredentialFlow', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./sarCredentialFlow')>()),
+vi.mock('./providerRequestMatcher', () => ({ isProviderContextRequest: vi.fn(() => true) }));
+vi.mock('./sarCredentialFlow', () => ({
   clearSarCredentialCapture: vi.fn(),
   rememberSarCredentialCapture: vi.fn(),
-  stageSarCredentialCaptureForMetadata: extensionMocks.stageSarCapture,
+  resolveSarCredentialCaptureConfig: vi.fn(() => ({ config: null, error: null })),
+  stageSarCredentialCaptureForMetadata: mocks.stageSarCapture,
 }));
 
-const OPEN_NEW_TAB_BACKGROUND = 'open_new_tab_background';
-const SEND_METADATA_MESSAGES_RESPONSE = 'send_metadata_messages_response';
-const EXTRACT_METADATA_OFFSCREEN = 'extract_metadata_offscreen';
+const sourceSender = {
+  documentId: 'source-document',
+  frameId: 0,
+  tab: { id: 11, url: 'https://developer.peer.xyz/' },
+  url: 'https://developer.peer.xyz/',
+} as chrome.runtime.MessageSender & { documentId: string };
 
-type RuntimeMessageListener = (
-  message: unknown,
-  sender: chrome.runtime.MessageSender,
-  sendResponse: (response?: unknown) => void,
-) => boolean | void;
+const amazonHistoryTab = {
+  id: 22,
+  url: 'https://www.amazon.in/pay/history',
+} as chrome.tabs.Tab;
 
-type TabRemovedListener = (tabId: number) => void;
+function providerConfig() {
+  return {
+    authLink: 'https://provider.example/login',
+    body: '',
+    method: 'GET',
+    metadata: {
+      fallbackMethod: '',
+      fallbackUrlRegex: '',
+      method: 'GET',
+      platform: 'venmo',
+      preprocessRegex: '',
+      transactionsExtraction: {},
+      urlRegex: 'transactions',
+    },
+    paramNames: [],
+    paramSelectors: [],
+    url: 'https://provider.example/api/transactions',
+  };
+}
 
-function createDeferred<T>(): {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-} {
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((nextResolve) => {
     resolve = nextResolve;
@@ -88,67 +130,54 @@ function createDeferred<T>(): {
   return { promise, resolve };
 }
 
-describe('Background capture session cancellation', () => {
+describe('Background capture routing', () => {
   let runtimeMessageListener: RuntimeMessageListener;
-  let tabRemovedListener: TabRemovedListener;
+  let tabRemovedListener: (tabId: number) => void;
 
-  const openCaptureSession = async (captureAttemptId = 'attempt-1', usePageSuppliedConfig = true) => {
+  async function openCapture(data: Record<string, unknown> = {}): Promise<void> {
     const sendResponse = vi.fn();
-
     runtimeMessageListener(
       {
-        action: OPEN_NEW_TAB_BACKGROUND,
+        action: 'open_new_tab_background',
         data: {
-          actionType: 'transfer_cashapp',
-          captureAttemptId,
-          captureMode: 'sellerCredential',
-          platform: 'cashapp',
-          ...(usePageSuppliedConfig
-            ? {
-                providerConfig: {
-                  authLink: 'https://cashapp.example/login',
-                  metadata: {
-                    platform: 'cashapp',
-                    urlRegex: 'transactions',
-                  },
-                },
-              }
-            : {}),
+          actionType: 'transfer_venmo',
+          captureAttemptId: 'attempt-1',
+          platform: 'venmo',
+          ...data,
         },
       },
-      { tab: { id: 11 } } as chrome.runtime.MessageSender,
+      sourceSender,
       sendResponse,
     );
-
-    await vi.waitFor(() => {
-      expect(sendResponse).toHaveBeenCalledWith({ success: true });
-    });
-  };
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ success: true }));
+  }
 
   beforeEach(async () => {
     vi.resetModules();
     vi.useFakeTimers();
     vi.clearAllMocks();
-    extensionMocks.metadataHandler = null;
-    extensionMocks.runtimeSendMessage.mockResolvedValue(undefined);
-    extensionMocks.stageBuyerCapture.mockResolvedValue({
+    mocks.approval.mockResolvedValue(true);
+    mocks.executeScript.mockResolvedValue([{ result: { requested: true } }]);
+    mocks.metadataHandler = null;
+    mocks.runtimeSendMessage.mockResolvedValue(undefined);
+    mocks.stageBuyerCapture.mockResolvedValue({
       capture: null,
       errorMessage: null,
       metadata: undefined,
     });
-    extensionMocks.stageSarCapture.mockResolvedValue({
-      capture: null,
-      errorMessage: null,
-    });
-    extensionMocks.tabsSendMessage.mockResolvedValue(undefined);
-
+    mocks.stageSarCapture.mockResolvedValue({ capture: null, errorMessage: null });
+    mocks.tabsCreate.mockResolvedValue({ id: 22 });
+    mocks.tabsSendMessage.mockResolvedValue(undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ json: vi.fn(async () => providerConfig()), ok: true })),
+    );
     vi.stubGlobal('chrome', {
-      action: {
-        onClicked: { addListener: vi.fn() },
-      },
+      scripting: { executeScript: mocks.executeScript },
+      action: {},
       runtime: {
         getURL: vi.fn((path: string) => `chrome-extension://extension-id/${path}`),
-        lastError: undefined,
+        id: 'extension-id',
         onInstalled: { addListener: vi.fn() },
         onMessage: {
           addListener: vi.fn((listener: RuntimeMessageListener) => {
@@ -157,20 +186,24 @@ describe('Background capture session cancellation', () => {
         },
       },
       tabs: {
-        create: vi.fn().mockResolvedValue({ id: 22 }),
+        create: mocks.tabsCreate,
+        get: vi.fn(async () => ({ id: 22, active: false, windowId: 1 })),
+        update: vi.fn(async () => undefined),
         onRemoved: {
-          addListener: vi.fn((listener: TabRemovedListener) => {
+          addListener: vi.fn((listener: (tabId: number) => void) => {
             tabRemovedListener = listener;
           }),
         },
         onUpdated: { addListener: vi.fn() },
-        query: vi.fn().mockResolvedValue([]),
+        query: vi.fn(async () => []),
+        remove: vi.fn(),
       },
       webRequest: {
         onBeforeRequest: { addListener: vi.fn() },
         onResponseStarted: { addListener: vi.fn() },
         onSendHeaders: { addListener: vi.fn() },
       },
+      windows: { onRemoved: { addListener: vi.fn() } },
     });
 
     await import('./index');
@@ -181,238 +214,198 @@ describe('Background capture session cancellation', () => {
     vi.unstubAllGlobals();
   });
 
-  it.each(['venmo', 'paypal', 'upi', 'wise'])(
-    'rejects %s seller capture without opening a tab or staging credentials',
-    async (platform) => {
-      const sendResponse = vi.fn();
-      runtimeMessageListener({
-        action: OPEN_NEW_TAB_BACKGROUND,
-        data: {
-          captureMode: 'sellerCredential',
-          platform,
-          providerConfig: {
-            authLink: 'https://provider.example/login',
-            metadata: { platform, urlRegex: 'transactions' },
-          },
-        },
-      }, { tab: { id: 11 } } as chrome.runtime.MessageSender, sendResponse);
-
-      await vi.waitFor(() => {
-        expect(sendResponse).toHaveBeenCalledWith({
-          success: false,
-          error: `Seller credential capture is not supported for ${platform}.`,
-        });
-      });
-      expect(chrome.tabs.create).not.toHaveBeenCalled();
-      expect(extensionMocks.stageSarCapture).not.toHaveBeenCalled();
-      expect(extensionMocks.runtimeSendMessage).not.toHaveBeenCalled();
-    },
-  );
-
-  it('notifies the matching attempt when the provider tab is closed', async () => {
-    await openCaptureSession();
-
-    tabRemovedListener(22);
-
-    expect(extensionMocks.tabsSendMessage).toHaveBeenCalledWith(11, {
-      action: SEND_METADATA_MESSAGES_RESPONSE,
-      data: {
-        requestId: '',
-        platform: 'cashapp',
-        metadata: [],
-        expiresAt: expect.any(Number),
-        captureAttemptId: 'attempt-1',
-        errorMessage: 'Provider authentication was cancelled.',
-      },
-    });
-  });
-
-  it.each([
-    { expected: true, label: 'page-supplied', usePageSuppliedConfig: true },
-    { expected: false, label: 'managed template', usePageSuppliedConfig: false },
-  ])('constrains replay to the captured origin for $label configs', async ({
-    expected,
-    usePageSuppliedConfig,
-  }) => {
-    extensionMocks.runtimeSendMessage.mockResolvedValue({
-      success: true,
+  it('keeps existing providers on the remote Curator path and opens them in the foreground', async () => {
+    mocks.runtimeSendMessage.mockResolvedValue({
+      metadata: [{ hidden: false, originalIndex: 0, paymentId: 'payment-1' }],
+      request: {},
       requestId: 'request-1',
-      metadata: [],
+      success: true,
     });
-    if (!usePageSuppliedConfig) {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn().mockResolvedValue(
-          new Response(
-            JSON.stringify({
-              authLink: 'https://cashapp.example/login',
-              metadata: { platform: 'cashapp', urlRegex: 'transactions' },
-            }),
-            { status: 200 },
-          ),
-        ),
-      );
-    }
-    await openCaptureSession('attempt-1', usePageSuppliedConfig);
+    await openCapture();
 
-    await extensionMocks.metadataHandler?.({
-      initiator: 'https://cashapp.example',
+    expect(fetch).toHaveBeenCalledWith('https://api.zkp2p.xyz/providers/venmo/transfer_venmo.json');
+    expect(mocks.tabsCreate).toHaveBeenCalledWith({
+      active: true,
+      url: 'about:blank',
+      windowId: 1,
+    });
+    expect(chrome.tabs.update).toHaveBeenCalledWith(22, { url: 'https://provider.example/login' });
+    expect(mocks.openPluginSession).not.toHaveBeenCalled();
+    expect(mocks.approval).not.toHaveBeenCalled();
+
+    await mocks.metadataHandler?.({
+      initiator: 'https://provider.example',
       method: 'GET',
       requestHeaders: [],
       requestId: 'request-1',
       tabId: 22,
       type: 'xmlhttprequest',
-      url: 'https://cashapp.example/transactions',
+      url: 'https://provider.example/transactions',
     });
 
-    const extractCall = extensionMocks.runtimeSendMessage.mock.calls.find(
-      ([message]) => (message as { action?: string }).action === EXTRACT_METADATA_OFFSCREEN,
-    );
-    expect(extractCall?.[0]).toEqual(
+    expect(mocks.runtimeSendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ sameOriginReplayOnly: expected }),
+        action: 'extract_metadata_offscreen',
+        data: expect.objectContaining({ providerConfig: providerConfig() }),
       }),
+    );
+    expect(
+      mocks.runtimeSendMessage.mock.calls.every(
+        ([message]) => message.action === 'extract_metadata_offscreen',
+      ),
+    ).toBe(true);
+    expect(mocks.tabsSendMessage).toHaveBeenCalledWith(
+      11,
+      expect.objectContaining({
+        action: 'send_metadata_messages_response',
+        data: expect.objectContaining({ requestId: 'request-1' }),
+      }),
+      undefined,
+      { documentId: 'source-document', frameId: 0 },
     );
   });
 
-  it('does not post a staged response after the provider tab is closed', async () => {
-    const deferredSarCapture = createDeferred<{
-      capture: null;
-      errorMessage: null;
-    }>();
-    extensionMocks.runtimeSendMessage.mockResolvedValue({
-      success: true,
-      requestId: 'request-1',
-      metadata: [],
-    });
-    extensionMocks.stageSarCapture.mockReturnValue(deferredSarCapture.promise);
-    await openCaptureSession();
+  it('routes an explicit page plugin without fetching provider JSON', async () => {
+    const capturePlugin = {
+      authLink: 'https://provider.example/',
+      id: 'venmo/transfer_venmo',
+      name: 'Venmo',
+      origins: ['https://provider.example'],
+      shouldSkipCloseTab: false,
+      source: 'function capture() { return null; }',
+    };
+    await openCapture({ capturePlugin });
 
-    const extractionPromise = Promise.resolve(
-      extensionMocks.metadataHandler?.({
-        initiator: 'https://cashapp.example',
-        method: 'GET',
-        requestHeaders: [],
-        requestId: 'request-1',
-        tabId: 22,
-        type: 'xmlhttprequest',
-        url: 'https://cashapp.example/transactions',
-      }),
+    expect(mocks.openPluginSession).toHaveBeenCalledWith(
+      expect.objectContaining({ capturePlugin }),
+      expect.objectContaining({ origin: 'https://developer.peer.xyz' }),
     );
-    await vi.waitFor(() => {
-      expect(extensionMocks.stageSarCapture).toHaveBeenCalled();
-    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
 
+  it('notifies the exact source document when a provider tab closes', async () => {
+    await openCapture();
     tabRemovedListener(22);
-    deferredSarCapture.resolve({ capture: null, errorMessage: null });
-    await extractionPromise;
 
-    const originalTabResponses = extensionMocks.tabsSendMessage.mock.calls.filter(
-      ([tabId, message]) =>
-        tabId === 11 && (message as { action?: string }).action === SEND_METADATA_MESSAGES_RESPONSE,
-    );
-    expect(originalTabResponses).toHaveLength(1);
-    expect(originalTabResponses[0]?.[1]).toEqual(
+    expect(mocks.tabsSendMessage).toHaveBeenCalledWith(
+      11,
       expect.objectContaining({
         data: expect.objectContaining({
           captureAttemptId: 'attempt-1',
           errorMessage: 'Provider authentication was cancelled.',
         }),
       }),
+      undefined,
+      { documentId: 'source-document', frameId: 0 },
     );
   });
-  it.each([
-    { kind: 'seller', error: 'Seller credential creation failed.' },
-    { kind: 'buyer', error: 'Buyer encryption failed.' },
-    { kind: 'metadata', error: 'No transactions could be extracted.' },
-    { kind: 'worker', error: 'Metadata extraction failed.' },
-  ])('reports $kind failure without starting the success countdown', async ({ kind, error }) => {
-    extensionMocks.runtimeSendMessage.mockResolvedValue(
-      kind === 'worker'
-        ? { success: false, requestId: 'request-1', error }
-        : {
-            success: true,
-            requestId: 'request-1',
-            metadata: [],
-            ...(kind === 'metadata' ? { errorMessage: error } : {}),
-          },
-    );
-    if (kind === 'seller') {
-      extensionMocks.stageSarCapture.mockResolvedValue({ capture: null, errorMessage: error });
-    }
-    if (kind === 'buyer') {
-      extensionMocks.stageBuyerCapture.mockResolvedValue({ capture: null, errorMessage: error });
-    }
-    await openCaptureSession();
-    const request: MetadataRequest = {
-      initiator: 'https://cashapp.example',
-      method: 'GET',
-      requestHeaders: [],
+
+  it('does not deliver staged metadata after the provider tab closes', async () => {
+    const pendingSarCapture = deferred<{ capture: null; errorMessage: null }>();
+    mocks.runtimeSendMessage.mockResolvedValue({
+      metadata: [],
+      request: {},
       requestId: 'request-1',
-      tabId: 22,
-      type: 'xmlhttprequest',
-      url: 'https://cashapp.example/transactions',
-    };
-    await extensionMocks.metadataHandler?.(request);
-    await vi.advanceTimersByTimeAsync(2000);
-
-    expect(extensionMocks.tabsSendMessage).toHaveBeenCalledWith(11, {
-      action: SEND_METADATA_MESSAGES_RESPONSE,
-      data: expect.objectContaining({ errorMessage: error, captureAttemptId: 'attempt-1' }),
+      success: true,
     });
-    expect(injectSpinner).not.toHaveBeenCalled();
-    expect(startCountdownAndClose).not.toHaveBeenCalled();
-    expect(clearSarCredentialCapture).toHaveBeenCalledWith(22);
+    mocks.stageSarCapture.mockReturnValue(pendingSarCapture.promise);
+    await openCapture();
 
-    // The failed attempt is terminal; repeated requests and tab closure cannot resend it.
-    await extensionMocks.metadataHandler?.(request);
-    tabRemovedListener(22);
-    const responses = extensionMocks.tabsSendMessage.mock.calls.filter(
-      ([, message]) => message.action === SEND_METADATA_MESSAGES_RESPONSE,
-    );
-    expect(responses).toHaveLength(1);
-  });
-
-  it.each([null, 'Buyer encryption failed.'])(
-    'ignores metadata-only errors after seller capture while preserving buyer errors (%s)',
-    async (buyerError) => {
-      const capture = {
-        offchainId: 'seller-example',
-        credentialBundle: { platform: 'cashapp', encryptedBlob: 'test-sealed-bundle' },
-      };
-      extensionMocks.runtimeSendMessage.mockResolvedValue({
-        success: true,
-        requestId: 'request-1',
-        metadata: [{ ignored: 'metadata must stay suppressed' }],
-        errorMessage: 'No transactions could be extracted.',
-      });
-      extensionMocks.stageSarCapture.mockResolvedValue({ capture, errorMessage: null });
-      extensionMocks.stageBuyerCapture.mockResolvedValue({ capture: null, errorMessage: buyerError });
-      await openCaptureSession();
-      await extensionMocks.metadataHandler?.({
-        initiator: 'https://cashapp.example',
+    const extraction = Promise.resolve(
+      mocks.metadataHandler?.({
+        initiator: 'https://provider.example',
         method: 'GET',
         requestHeaders: [],
         requestId: 'request-1',
         tabId: 22,
         type: 'xmlhttprequest',
-        url: 'https://cashapp.example/transactions',
-      });
-      await vi.advanceTimersByTimeAsync(2000);
+        url: 'https://provider.example/transactions',
+      }),
+    );
+    await vi.waitFor(() => expect(mocks.stageSarCapture).toHaveBeenCalled());
+    tabRemovedListener(22);
+    pendingSarCapture.resolve({ capture: null, errorMessage: null });
+    await extraction;
 
-      expect(extensionMocks.tabsSendMessage).toHaveBeenCalledWith(11, {
-        action: SEND_METADATA_MESSAGES_RESPONSE,
-        data: expect.objectContaining({
-          errorMessage: buyerError ?? undefined,
-          metadata: [],
-          sarCredentialCapture: capture,
-          requiresMetadataApproval: true,
-        }),
-      });
-      expect(injectSpinner).toHaveBeenCalledTimes(buyerError ? 0 : 1);
-      expect(startCountdownAndClose).toHaveBeenCalledTimes(buyerError ? 0 : 1);
-      expect(clearSarCredentialCapture).toHaveBeenCalledWith(22);
-    },
-  );
+    const sourceResponses = mocks.tabsSendMessage.mock.calls.filter(
+      ([tabId, message]) =>
+        tabId === 11 &&
+        (message as { action?: string }).action === 'send_metadata_messages_response',
+    );
+    expect(sourceResponses).toHaveLength(1);
+    expect(sourceResponses[0]?.[1]).toEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({ errorMessage: 'Provider authentication was cancelled.' }),
+      }),
+    );
+  });
 
+  it('does not show success when seller credential creation fails', async () => {
+    mocks.runtimeSendMessage.mockResolvedValue({
+      success: true,
+      metadata: [],
+      request: {},
+      requestId: 'request-1',
+    });
+    mocks.stageSarCapture.mockResolvedValue({ capture: null, errorMessage: 'Capture failed.' });
+    await openCapture();
+    await captureMetadata();
+    expect(injectSpinner).not.toHaveBeenCalled();
+  });
+
+  async function captureMetadata(): Promise<void> {
+    await mocks.metadataHandler?.({
+      initiator: 'https://provider.example',
+      method: 'GET',
+      requestHeaders: [],
+      requestId: 'request-1',
+      tabId: 22,
+      type: 'xmlhttprequest',
+      url: 'https://provider.example/transactions',
+    });
+  }
+
+  it('rejects invalid provider identifiers before fetching', async () => {
+    const sendResponse = vi.fn();
+    runtimeMessageListener(
+      {
+        action: 'open_new_tab_background',
+        data: { actionType: 'transfer_venmo', platform: '../venmo' },
+      },
+      sourceSender,
+      sendResponse,
+    );
+
+    await vi.waitFor(() =>
+      expect(sendResponse).toHaveBeenCalledWith({
+        error: 'Invalid provider platform.',
+        success: false,
+      }),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when Chrome cannot bind the request to a document', async () => {
+    const sendResponse = vi.fn();
+    runtimeMessageListener(
+      {
+        action: 'open_new_tab_background',
+        data: { actionType: 'transfer_venmo', platform: 'venmo' },
+      },
+      {
+        frameId: 0,
+        tab: { id: 11, url: 'https://developer.peer.xyz/' },
+        url: 'https://developer.peer.xyz/',
+      } as chrome.runtime.MessageSender,
+      sendResponse,
+    );
+
+    await vi.waitFor(() =>
+      expect(sendResponse).toHaveBeenCalledWith({
+        error: 'Unable to bind metadata capture to the requesting document.',
+        success: false,
+      }),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });
