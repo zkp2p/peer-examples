@@ -93,14 +93,9 @@ vi.mock('./sarCredentialFlow', () => ({
 const sourceSender = {
   documentId: 'source-document',
   frameId: 0,
-  tab: { id: 11, url: 'https://developer.peer.xyz/' },
-  url: 'https://developer.peer.xyz/',
+  tab: { id: 11, url: 'https://app.acme-verify.example/' },
+  url: 'https://app.acme-verify.example/',
 } as chrome.runtime.MessageSender & { documentId: string };
-
-const amazonHistoryTab = {
-  id: 22,
-  url: 'https://www.amazon.in/pay/history',
-} as chrome.tabs.Tab;
 
 function providerConfig() {
   return {
@@ -278,7 +273,7 @@ describe('Background capture routing', () => {
 
     expect(mocks.openPluginSession).toHaveBeenCalledWith(
       expect.objectContaining({ capturePlugin }),
-      expect.objectContaining({ origin: 'https://developer.peer.xyz' }),
+      expect.objectContaining({ origin: 'https://app.acme-verify.example' }),
     );
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -394,8 +389,8 @@ describe('Background capture routing', () => {
       },
       {
         frameId: 0,
-        tab: { id: 11, url: 'https://developer.peer.xyz/' },
-        url: 'https://developer.peer.xyz/',
+        tab: { id: 11, url: 'https://app.acme-verify.example/' },
+        url: 'https://app.acme-verify.example/',
       } as chrome.runtime.MessageSender,
       sendResponse,
     );
