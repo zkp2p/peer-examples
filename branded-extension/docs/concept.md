@@ -28,7 +28,8 @@ interface Peer {
     attestationServiceUrl?: string | null;
     attestationActionType?: string | null;
     captureMode?: 'buyerTee' | 'sellerCredential';
-    providerConfig?: ProviderSettings; // pass a COMPLETE inline config
+    capturePlugin?: PeerCapturePlugin; // optional explicit local plugin
+    captureParams?: Record<string, string | number | boolean>;
   }): void;
 
   // Subscribe to verification results. Returns an unsubscribe function.
@@ -52,15 +53,17 @@ either way.
 
 ## The pieces
 
-The extension is four cooperating contexts. None of them is brand-specific;
+The extension uses the following cooperating contexts. None of them is brand-specific;
 branding is injected from `brand.config.json` at the edges only.
 
 | Context | File(s) | Responsibility |
 | --- | --- | --- |
 | **Injected script** (page MAIN world) | `entries/Content/injectScript.ts` | Defines `window.peer`, relays page ⇄ content messages over `window.postMessage`. |
-| **Content script** (isolated world) | `entries/Content/index.ts`, `connectionApproval.ts`, `approvalPopup.ts` | Injects the page script, shows the connect/confirm approval UI, bridges page ⇄ background. |
+| **Content script** (isolated world) | `entries/Content/index.ts`, `connectionApproval.ts`, `capturePageActions.ts` | Injects the page script, shows the connect/confirm approval UI, bridges page ⇄ background. |
 | **Background** (service worker) | `entries/Background/*` | Opens the auth tab, intercepts the right network requests (`webRequest`), runs the capture flows, drives the in-tab auth overlay. |
-| **Offscreen** (DOM-less document) | `entries/Offscreen/*` | Does capture encryption and credential bundling that need DOM crypto APIs but no UI. |
+| **Offscreen** | `entries/Offscreen/*` | Encrypts capture material, creates credential bundles, and bridges to the sandbox. |
+| **Capture sandbox** | `entries/CaptureSandbox/*` | Runs local QuickJS plugin hooks without privileged extension access. |
+| **Approval and Settings** | `entries/Approval/*`, `entries/Manager/*` | Approves installs and connections, then lets the user remove them. |
 
 The shared **capture/metadata engine** lives in `utils/` (`metadataEngine.ts`,
 `offscreenHelpers.ts`, `buyerTeePaymentCapture.ts`, `sarCredentialBundle.ts`,
@@ -69,16 +72,16 @@ typed message channels under `utils/types/messages/`).
 ## Capture flow (one run)
 
 1. The page calls `peer.authenticate({ platform, actionType, ... })`.
-2. Content script ensures the origin is connected (prompting if needed), then
-   forwards to background.
-3. Background resolves a **provider config**: either the complete one you passed
-   inline, or one fetched from `${apiBaseUrl}/providers/<platform>/<actionType>.json`.
-4. Background opens the platform's auth tab and arms `webRequest` interceptors
-   for the URLs the provider config names.
-5. When the matching request is seen, the captured material is handed to the
-   offscreen document, **encrypted**, and submitted to the attestation service.
-6. The attested result is posted back to the page; your
-   `onMetadataMessage` callback fires.
+2. The content script checks connection consent and forwards to background.
+3. Without a plugin, background fetches the configured provider template. With
+   `capturePlugin`, it verifies the local JSON, checks the configured registry,
+   and requests per-origin install approval.
+4. Background opens the provider tab and intercepts matching requests. The
+   plugin path runs `match` and `capture` in the sandbox; the host validates and
+   executes any replay, query, navigation, or interaction request.
+5. For Buyer TEE or seller credential capture, offscreen encrypts session
+   material before it leaves the device. The result returns through
+   `onMetadataMessage`.
 
 ## Two capture modes
 
@@ -88,8 +91,7 @@ typed message channels under `utils/types/messages/`).
 - **`sellerCredential`** — seller-credential bundle capture.
 
 Platform-specific parsing for `sellerCredential` lives in
-`entries/Background/sarCredentialCapture.ts`. The kit ships two worked examples
-there. **Adding a platform means adding a parser there plus a provider template**;
+`entries/Background/sarCredentialCapture.ts`. The kit ships Cash App support there. **Adding a seller platform may require a parser and a provider template**;
 it does not require touching the engine. The `buyerTee` path is fully
 provider-config driven.
 

@@ -1,5 +1,6 @@
 import type { MetadataCaptureMode } from '@utils/metadataCaptureMode';
-import type { ProviderSettings } from '@utils/types';
+import type { CaptureParams } from '@utils/types/captureProgram';
+import type { PeerCapturePlugin, PeerInitialAction } from '@utils/types/captureProgram';
 
 export const PageToContentAction = {
   FETCH_EXTENSION_VERSION: 'fetch_extension_version',
@@ -19,20 +20,17 @@ export type OpenNewTabPagePayload = {
   callerAddress?: string | null;
   captureAttemptId?: string;
   captureMode?: MetadataCaptureMode;
+  captureParams?: CaptureParams;
+  capturePlugin?: PeerCapturePlugin;
+  initialAction?: PeerInitialAction;
   platform: string;
-  providerConfig?: ProviderSettings;
 };
 
 interface IPageToContentMessages {
   [PageToContentAction.FETCH_EXTENSION_VERSION]: {};
   [PageToContentAction.OPEN_NEW_TAB]: OpenNewTabPagePayload;
-  [PageToContentAction.REQUEST_PEER_CONNECTION]: {
-    hostname: string;
-    origin: string;
-  };
-  [PageToContentAction.CHECK_CONNECTION_STATUS]: {
-    origin: string;
-  };
+  [PageToContentAction.REQUEST_PEER_CONNECTION]: {};
+  [PageToContentAction.CHECK_CONNECTION_STATUS]: {};
 }
 
 export type PageToContentMessageType = {

@@ -54,6 +54,7 @@ const copyStaticAssets = (mode: string) => {
 
 export default defineConfig(({ command, mode }) => {
   const emptyShim = path.resolve(__dirname, 'src/shims/empty.ts');
+  const nodeFsShim = path.resolve(__dirname, 'src/shims/node-fs.ts');
   const workerThreadsShim = path.resolve(__dirname, 'src/shims/worker-threads.ts');
   const cryptoBrowserShim = path.resolve(__dirname, 'crypto-browser.js');
   const re2Shim = path.resolve(__dirname, 'src/shims/re2.cjs');
@@ -106,12 +107,13 @@ export default defineConfig(({ command, mode }) => {
         { find: 'http', replacement: require.resolve('stream-http') },
         { find: 'https', replacement: require.resolve('https-browserify') },
         { find: 'os', replacement: emptyShim },
-        { find: /^fs(?:\/.*)?$/, replacement: emptyShim },
-        { find: /^node:fs(?:\/.*)?$/, replacement: emptyShim },
+        { find: /^fs(?:\/.*)?$/, replacement: nodeFsShim },
+        { find: /^node:fs(?:\/.*)?$/, replacement: nodeFsShim },
         { find: 'dns', replacement: emptyShim },
         { find: 'timers', replacement: emptyShim },
         { find: 'tls', replacement: emptyShim },
-        { find: 'path', replacement: emptyShim },
+        { find: 'path', replacement: require.resolve('path-browserify') },
+        { find: 'node:path', replacement: require.resolve('path-browserify') },
         { find: 'zlib', replacement: emptyShim },
         { find: 'child_process', replacement: emptyShim },
         { find: /^koffi$/, replacement: emptyShim },
@@ -146,6 +148,9 @@ export default defineConfig(({ command, mode }) => {
           warn(warning);
         },
         input: {
+          approval: path.resolve(__dirname, 'approval.html'),
+          captureSandbox: path.resolve(__dirname, 'capture-sandbox.html'),
+          manager: path.resolve(__dirname, 'manager.html'),
           offscreen: path.resolve(__dirname, 'offscreen.html'),
           popup: path.resolve(__dirname, 'popup.html'),
           background: path.resolve(__dirname, 'src/entries/Background/index.ts'),

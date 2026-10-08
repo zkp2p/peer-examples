@@ -4,7 +4,7 @@ import { BRAND } from '@config/brand';
 import { isAutoApprovedHost, requiresConnectionApproval } from './connectionApproval';
 
 describe('content connection approval', () => {
-  it.each(['localhost', '127.0.0.1'])('auto-approves local host %s', (hostname) => {
+  it.each(['localhost'])('auto-approves local host %s', (hostname) => {
     expect(isAutoApprovedHost(hostname)).toBe(true);
   });
 

@@ -1,4 +1,3 @@
-import { BRAND } from '@config/brand';
 import {
   BackgroundToContentAction,
   type BackgroundToContentMessageType,
@@ -9,6 +8,7 @@ import {
   type PageToContentMessageType,
 } from '@utils/types/messages';
 import { getManifestVersion } from '@utils/getManifestVersion';
+import { BRAND } from '@config/brand';
 import { logger } from '@utils/logger';
 import { safeChromeRuntimeSendMessage } from '@utils/extensionMessaging';
 import {
@@ -16,7 +16,8 @@ import {
   requiresConnectionApproval,
   type PeerConnectionStatus,
 } from './connectionApproval';
-import { requestContentApproval } from './approvalPopup';
+import { executeCapturePageAction } from './capturePageActions';
+import { watchCaptureLogin } from './captureLogin';
 
 const injectPeerAPI = () => {
   if (document.documentElement.getAttribute('data-peer-injected') === 'true') {
@@ -41,35 +42,40 @@ const postToPage = (message: ContentToPageMessageType) => {
   }
 };
 
-let connectionStatus: PeerConnectionStatus = 'disconnected';
+let connectionStatus: PeerConnectionStatus = 'pending';
+let connectionApprovalPromise: Promise<boolean> | null = null;
+
+const connectionStatusPromise = safeChromeRuntimeSendMessage<{ connected?: boolean }>({
+  action: ContentToBackgroundAction.CHECK_CONNECTION_BACKGROUND,
+}).then((response) => {
+  connectionStatus = response?.connected === true ? 'connected' : 'disconnected';
+});
 
 function isConnectedToPage(): boolean {
   return isConnectedToHost(connectionStatus, window.location.hostname);
 }
 
 async function requestPageConnectionApproval(): Promise<boolean> {
-  const hostname = window.location.hostname;
-  if (!requiresConnectionApproval(connectionStatus, hostname)) {
-    connectionStatus = 'connected';
+  await connectionStatusPromise;
+  if (!requiresConnectionApproval(connectionStatus, window.location.hostname)) {
     return true;
   }
+  if (connectionApprovalPromise) return connectionApprovalPromise;
 
   connectionStatus = 'pending';
-  const approved = await requestContentApproval({
-    approveLabel: 'Connect',
-    description: `This site wants to connect to ${BRAND.name} and request payment verification.`,
-    hostname,
-    origin: window.location.origin,
-    permissions: [
-      'Open payment platform tabs to capture a confirmation',
-      'Request payment verification',
-      'Receive verification results',
-    ],
-    rejectLabel: 'Reject',
-    title: 'Connection Request',
+  connectionApprovalPromise = (async () => {
+    const response = await safeChromeRuntimeSendMessage<{ approved?: boolean }>({
+      action: ContentToBackgroundAction.REQUEST_APPROVAL_BACKGROUND,
+      data: { kind: 'connection' },
+    });
+    const approved = response?.approved === true;
+    connectionStatus = approved ? 'connected' : 'disconnected';
+    return approved;
+  })().finally(() => {
+    connectionApprovalPromise = null;
   });
-  connectionStatus = approved ? 'connected' : 'disconnected';
-  return approved;
+
+  return connectionApprovalPromise;
 }
 
 function postMetadataError(
@@ -100,31 +106,11 @@ function buildPageMetadataMessage(
     action: typeof BackgroundToContentAction.SEND_METADATA_MESSAGES_RESPONSE;
   },
 ): ContentToPageMessageType {
-  const { requiresMetadataApproval: _requiresMetadataApproval, ...payload } = data.data;
   return {
     type: ContentToPageAction.METADATA_MESSAGES_RESPONSE,
     status: 'loaded',
-    ...payload,
+    ...data.data,
   };
-}
-
-async function confirmMetadataShare(message: ContentToPageMessageType): Promise<boolean> {
-  if (message.type !== ContentToPageAction.METADATA_MESSAGES_RESPONSE) {
-    return true;
-  }
-
-  return requestContentApproval({
-    approveLabel: 'Approve',
-    description:
-      'The page requested custom data to be returned. Review the following response before sharing with the page.',
-    details: message.metadata,
-    detailsLabel: 'Response',
-    hostname: window.location.hostname,
-    origin: window.location.origin,
-    rejectLabel: 'Reject',
-    title: 'Review Response',
-    warning: 'Reject if this data is unexpected or the page should not receive it.',
-  });
 }
 
 async function handlePageMessage(event: MessageEvent<PageToContentMessageType>): Promise<void> {
@@ -141,6 +127,7 @@ async function handlePageMessage(event: MessageEvent<PageToContentMessageType>):
       break;
     }
     case PageToContentAction.CHECK_CONNECTION_STATUS: {
+      await connectionStatusPromise;
       postToPage({
         type: ContentToPageAction.CONNECTION_STATUS_RESPONSE,
         origin: window.location.origin,
@@ -157,10 +144,14 @@ async function handlePageMessage(event: MessageEvent<PageToContentMessageType>):
       break;
     }
     case PageToContentAction.OPEN_NEW_TAB: {
-      if (!isConnectedToPage()) {
+      if (
+        event.data.capturePlugin === undefined &&
+        !isConnectedToPage() &&
+        !(await requestPageConnectionApproval())
+      ) {
         postMetadataError(
           event.data.platform,
-          `${BRAND.name} connection required.`,
+          `${BRAND.shortName} connection required.`,
           '',
           event.data.captureAttemptId,
         );
@@ -174,7 +165,7 @@ async function handlePageMessage(event: MessageEvent<PageToContentMessageType>):
       if (!response?.success) {
         postMetadataError(
           event.data.platform,
-          response?.error ?? 'Unable to open the verification tab.',
+          response?.error ?? 'Unable to open provider authentication tab.',
           '',
           event.data.captureAttemptId,
         );
@@ -192,52 +183,29 @@ window.addEventListener('message', (event: MessageEvent<PageToContentMessageType
   });
 });
 
-// Popup-only status probe (mirrored in src/entries/Popup/index.ts). Read-only:
-// reports the in-memory connection status so the toolbar popup can list which
-// sites are connected. Not part of the typed page<->content message channels.
-const GET_CONNECTION_STATUS_ACTION = 'peer_get_connection_status';
-
 chrome.runtime.onMessage.addListener(
-  (message: { action?: string }, _sender, sendResponse: (response: unknown) => void) => {
-    if (message?.action !== GET_CONNECTION_STATUS_ACTION) {
-      return;
+  (message: BackgroundToContentMessageType, _sender, sendResponse) => {
+    if (message.action === BackgroundToContentAction.WATCH_CAPTURE_LOGIN) {
+      watchCaptureLogin(message.data.enabled);
+      return false;
     }
-
-    sendResponse({
-      hostname: window.location.hostname,
-      status: isConnectedToPage() ? 'connected' : connectionStatus,
-    });
+    if (message.action === BackgroundToContentAction.CONNECTION_REVOKED) {
+      if (message.data.origin === window.location.origin) connectionStatus = 'disconnected';
+      return false;
+    }
+    if (message.action === BackgroundToContentAction.SEND_METADATA_MESSAGES_RESPONSE) {
+      postToPage(buildPageMetadataMessage(message));
+      return false;
+    }
+    if (message.action === BackgroundToContentAction.EXECUTE_CAPTURE_PAGE_ACTION) {
+      void executeCapturePageAction(message.data.action, message.data.expectedUrl).then(
+        sendResponse,
+      );
+      return true;
+    }
+    return false;
   },
 );
-
-chrome.runtime.onMessage.addListener((message: BackgroundToContentMessageType) => {
-  if (message.action !== BackgroundToContentAction.SEND_METADATA_MESSAGES_RESPONSE) {
-    return;
-  }
-
-  void (async () => {
-    const pageMessage = buildPageMetadataMessage(message);
-    if (message.data.requiresMetadataApproval && !(await confirmMetadataShare(pageMessage))) {
-      postMetadataError(
-        message.data.platform,
-        'Sharing the verification result was rejected.',
-        message.data.requestId,
-        message.data.captureAttemptId,
-      );
-      return;
-    }
-
-    postToPage(pageMessage);
-  })().catch((error) => {
-    logger.error('[Content] Failed to review verification response', error);
-    postMetadataError(
-      message.data.platform,
-      'Reviewing the verification result failed.',
-      message.data.requestId,
-      message.data.captureAttemptId,
-    );
-  });
-});
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', injectPeerAPI);

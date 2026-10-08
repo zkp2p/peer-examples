@@ -6,4 +6,5 @@ export type BuyerTeePaymentParams = Record<string, string | number | boolean>;
 
 export type BuyerTeePaymentCapture = {
   encryptedSessionMaterial: string;
+  matchedParams?: BuyerTeePaymentParams;
 };

@@ -9,6 +9,12 @@ import {
   resolveMetadataPayload,
 } from '@utils/metadataEngine';
 import { logger } from '@utils/logger';
+import {
+  runCaptureInteraction,
+  runCaptureMatch,
+  runCaptureProgram,
+  warmCaptureSandbox,
+} from './captureSandboxClient';
 import { createSarCredentialBundle } from './sarCredentialBundle';
 
 async function extractMetadata(
@@ -17,7 +23,7 @@ async function extractMetadata(
     { action: typeof BackgroundToOffscreenAction.EXTRACT_METADATA_OFFSCREEN }
   >,
 ): Promise<ExtractMetadataOffscreenResponse> {
-  const { providerConfig, requests, sameOriginReplayOnly } = message.data;
+  const { includeBuyerTeeParams, providerConfig, requests } = message.data;
   const context = getContextRequests(requests, providerConfig);
   const contextRequest = context.found || context.fallback;
   if (!contextRequest) {
@@ -28,10 +34,8 @@ async function extractMetadata(
   }
 
   try {
-    const payload = await resolveMetadataPayload(context, providerConfig, {
-      sameOriginOnly: sameOriginReplayOnly,
-    });
-    const metadata = extractTransactionsFromPayload(payload, providerConfig);
+    const payload = await resolveMetadataPayload(context, providerConfig);
+    const metadata = extractTransactionsFromPayload(payload, providerConfig, includeBuyerTeeParams);
     return {
       errorMessage:
         metadata.length > 0
@@ -59,6 +63,43 @@ chrome.runtime.onMessage.addListener(
     sendResponse: (response?: unknown) => void,
   ) => {
     switch (message.action) {
+      case BackgroundToOffscreenAction.MATCH_CAPTURE_REQUEST_OFFSCREEN:
+        void runCaptureMatch(
+          message.data.source,
+          message.data.request,
+          message.data.params,
+          message.data.origins,
+        )
+          .then((result) => sendResponse({ result, success: true }))
+          .catch((error) =>
+            sendResponse({
+              error: error instanceof Error ? error.message : 'Capture request matching failed.',
+              success: false,
+            }),
+          );
+        return true;
+      case BackgroundToOffscreenAction.EXECUTE_CAPTURE_PROGRAM_OFFSCREEN:
+        void runCaptureProgram(message.data.source, message.data.event, message.data.params)
+          .then((result) => sendResponse({ result, success: true }))
+          .catch((error) => {
+            logger.error('[Offscreen] Capture program failed:', error);
+            sendResponse({
+              error: error instanceof Error ? error.message : 'Capture program failed.',
+              success: false,
+            });
+          });
+        return true;
+      case BackgroundToOffscreenAction.EXECUTE_CAPTURE_INTERACTION_OFFSCREEN:
+        void runCaptureInteraction(message.data)
+          .then((actions) => sendResponse({ actions, success: true }))
+          .catch((error) => {
+            logger.error('[Offscreen] Capture interaction failed:', error);
+            sendResponse({
+              error: error instanceof Error ? error.message : 'Capture interaction failed.',
+              success: false,
+            });
+          });
+        return true;
       case BackgroundToOffscreenAction.EXTRACT_METADATA_OFFSCREEN:
         void extractMetadata(message).then(sendResponse);
         return true;
@@ -70,6 +111,18 @@ chrome.runtime.onMessage.addListener(
             sendResponse({
               error:
                 error instanceof Error ? error.message : 'SAR credential bundle creation failed.',
+              success: false,
+            });
+          });
+        return true;
+      case BackgroundToOffscreenAction.WARM_CAPTURE_SANDBOX_OFFSCREEN:
+        void warmCaptureSandbox()
+          .then(() => sendResponse({ success: true }))
+          .catch((error) => {
+            logger.error('[Offscreen] Capture sandbox failed to initialize:', error);
+            sendResponse({
+              error:
+                error instanceof Error ? error.message : 'Capture sandbox failed to initialize.',
               success: false,
             });
           });

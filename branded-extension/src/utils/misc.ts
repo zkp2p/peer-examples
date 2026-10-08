@@ -111,9 +111,18 @@ function finishReplayRequestInPage(tabId: number, replay: ActiveInPageReplay): v
   }
 }
 
+export type ReplayResult = { status: number; text: string };
+
+export type ReplayOriginScope = {
+  pageOrigin: string;
+  requestOrigin: string;
+};
+
+/** Replays a captured request from the extension with the provider's cookies. */
 export async function replayRequest(
   req: RequestLog,
-): Promise<{ response: Response; text: string }> {
+  redirect: 'follow' | 'error' = 'follow',
+): Promise<ReplayResult> {
   const headers = req.requestHeaders.reduce<Record<string, string>>((acc, header) => {
     if (header.name !== undefined && header.value !== undefined) {
       acc[header.name] = header.value;
@@ -123,8 +132,10 @@ export async function replayRequest(
 
   const options: RequestInit = {
     method: req.method,
+    credentials: 'include',
     headers,
     body: req.requestBody,
+    redirect,
   };
 
   if (req?.formData) {
@@ -144,23 +155,20 @@ export async function replayRequest(
       ? resp.blob().then((blob) => blob.text())
       : resp.text());
 
-    return { response: resp, text };
+    return { status: resp.status, text };
   } catch (error) {
     logger.error('Error replaying request:', error);
-    return {
-      response: new Response(null, {
-        status: 500,
-        statusText: 'Request failed',
-        headers: new Headers(),
-      }),
-      text: '',
-    };
+    if (redirect === 'error') {
+      throw new Error('Provider replay failed. Re-authenticate and try again.');
+    }
+    return { status: 500, text: '' };
   }
 }
 
 export async function replayRequestInPage(
   tabId: number,
   log: RequestLog,
+  originScope: ReplayOriginScope | null = null,
 ): Promise<ReplayInPageResult> {
   if (!tabId) {
     return { ok: false, status: 0, error: 'Invalid tab ID' };
@@ -173,8 +181,21 @@ export async function replayRequestInPage(
     const results = await chrome.scripting.executeScript({
       target: { tabId },
       world: 'ISOLATED',
-      args: [log as ReplayInPageRequest],
-      func: function inject(req: ReplayInPageRequest): Promise<ReplayInPageResult> {
+      args: [log as ReplayInPageRequest, originScope],
+      func: function inject(
+        req: ReplayInPageRequest,
+        scope: ReplayOriginScope | null,
+      ): Promise<ReplayInPageResult> {
+        if (
+          scope &&
+          (location.origin !== scope.pageOrigin || new URL(req.url).origin !== scope.requestOrigin)
+        ) {
+          return Promise.resolve({
+            ok: false,
+            status: 0,
+            error: 'Provider replay origin changed.',
+          });
+        }
         const forbidden = [
           'host',
           'cookie',
@@ -216,7 +237,7 @@ export async function replayRequestInPage(
           method: req.method,
           headers: hdrs,
           credentials: 'include',
-          redirect: 'follow',
+          redirect: scope ? 'error' : 'follow',
         };
         if (req.method !== 'GET' && req.method !== 'HEAD' && typeof body !== 'undefined') {
           options.body = body;

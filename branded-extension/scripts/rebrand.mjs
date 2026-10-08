@@ -84,6 +84,7 @@ const ICONS = ['16', '32', '48', '128'];
 
 const manifest = {
   manifest_version: 3,
+  minimum_chrome_version: '114',
   name: config.name,
   version: pkg.version,
   description: config.description,
@@ -96,7 +97,10 @@ const manifest = {
   background: { service_worker: 'background.bundle.js', type: 'module' },
   content_security_policy: {
     extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; frame-ancestors 'none';",
+    sandbox: "sandbox allow-scripts; default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'self';",
   },
+  sandbox: { pages: ['capture-sandbox.html'] },
+  options_ui: { page: 'manager.html', open_in_tab: true },
   content_scripts: [
     { matches: config.hostDomains, all_frames: false, js: ['txClickGuideLoader.bundle.js'] },
     { matches: config.appOrigins, all_frames: false, js: ['contentScriptLoader.bundle.js'] },
@@ -119,7 +123,7 @@ const manifest = {
     originWithGlob(apiBaseUrl),
     originWithGlob(attestationServiceUrl),
   ],
-  permissions: ['offscreen', 'webRequest', 'tabs', 'scripting'],
+  permissions: ['offscreen', 'storage', 'webRequest', 'tabs', 'scripting'],
 };
 
 writeFileSync(path.join(root, 'src/manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);

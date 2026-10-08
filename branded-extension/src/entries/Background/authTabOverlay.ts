@@ -1,7 +1,7 @@
-import { BRAND } from '@config/brand';
 import { logger } from '@utils/logger';
+import { BRAND } from '@config/brand';
 
-const brandLogoUrl = chrome.runtime.getURL('icon-128.png');
+const peerLogoUrl = chrome.runtime.getURL('icon-128.png');
 
 function opacify(percent: number, hex: string): string {
   const normalized = hex.replace('#', '');
@@ -13,6 +13,7 @@ function opacify(percent: number, hex: string): string {
 }
 
 const spinnerOverlayTokens = {
+  brandName: BRAND.shortName,
   overlayBg: opacify(50, '#000000'),
   overlayText: '#ffffff',
   cardBg: '#101010',
@@ -26,7 +27,6 @@ const spinnerOverlayTokens = {
   bodyColor: '#ffffff',
   bodySize: '14px',
   poweredByColor: '#a7a7a7',
-  poweredByLabel: `Secured by ${BRAND.shortName}`,
   closeColor: opacify(60, '#ffffff'),
 } as const;
 
@@ -54,16 +54,17 @@ export async function injectSpinner(tabId: number) {
         logger.warn(`[injectSpinner] Tab ${tabId} does not exist. Skipping injection.`);
         return resolve();
       }
+      if (!tab.active) return resolve();
 
       chrome.scripting.executeScript(
         {
           target: { tabId },
           func: (tokens: typeof spinnerOverlayTokens, logoUrl: string) => {
-            const existingOverlay = document.getElementById('peer-redirect-overlay');
-            existingOverlay?.remove();
+            const existingOverlay = document.getElementById('zkp2p-redirect-overlay');
+            if (existingOverlay) return;
 
             const overlay = document.createElement('div');
-            overlay.id = 'peer-redirect-overlay';
+            overlay.id = 'zkp2p-redirect-overlay';
             overlay.style.setProperty('all', 'initial');
             const systemFont =
               "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol'";
@@ -103,7 +104,7 @@ export async function injectSpinner(tabId: number) {
             spinnerWrapper.style.marginBottom = '32px';
 
             const spinnerRing = document.createElement('div');
-            spinnerRing.id = 'peer-spinner';
+            spinnerRing.id = 'zkp2p-spinner';
             spinnerRing.style.position = 'absolute';
             spinnerRing.style.top = '0';
             spinnerRing.style.left = '0';
@@ -112,7 +113,7 @@ export async function injectSpinner(tabId: number) {
             spinnerRing.style.border = `6px solid ${tokens.spinnerTrack}`;
             spinnerRing.style.borderTopColor = tokens.spinnerAccent;
             spinnerRing.style.borderRadius = '50%';
-            spinnerRing.style.animation = 'peer-spin 1s linear infinite';
+            spinnerRing.style.animation = 'zkp2p-spin 1s linear infinite';
 
             const pLogo = document.createElement('img');
             pLogo.src = logoUrl;
@@ -127,7 +128,7 @@ export async function injectSpinner(tabId: number) {
             spinnerWrapper.appendChild(pLogo);
 
             const title = document.createElement('h3');
-            title.id = 'peer-title';
+            title.id = 'zkp2p-title';
             title.innerText = 'Authenticating...';
             title.style.margin = '12px 0 0';
             title.style.fontWeight = tokens.titleWeight;
@@ -137,7 +138,7 @@ export async function injectSpinner(tabId: number) {
             title.style.setProperty('font-family', systemFont, 'important');
 
             const redirectMsg = document.createElement('p');
-            redirectMsg.id = 'peer-redirect-msg';
+            redirectMsg.id = 'zkp2p-redirect-msg';
             redirectMsg.style.minHeight = '22px';
             redirectMsg.style.fontSize = tokens.bodySize;
             redirectMsg.style.color = tokens.bodyColor;
@@ -146,8 +147,8 @@ export async function injectSpinner(tabId: number) {
             redirectMsg.style.setProperty('font-family', systemFont, 'important');
 
             const poweredBy = document.createElement('p');
-            poweredBy.id = 'peer-poweredby';
-            poweredBy.innerText = tokens.poweredByLabel;
+            poweredBy.id = 'zkp2p-poweredby';
+            poweredBy.innerText = `Powered by ${tokens.brandName}`;
             poweredBy.style.fontSize = tokens.bodySize;
             poweredBy.style.color = tokens.poweredByColor;
             poweredBy.style.marginTop = 'auto';
@@ -169,7 +170,7 @@ export async function injectSpinner(tabId: number) {
 
             const styleEl = document.createElement('style');
             styleEl.innerHTML = `
-              @keyframes peer-spin {
+              @keyframes zkp2p-spin {
                 to { transform: rotate(360deg); }
               }
             `;
@@ -185,7 +186,7 @@ export async function injectSpinner(tabId: number) {
 
             document.body.appendChild(overlay);
           },
-          args: [spinnerOverlayTokens, brandLogoUrl],
+          args: [spinnerOverlayTokens, peerLogoUrl],
         },
         () => {
           if (chrome.runtime.lastError) {
@@ -200,7 +201,7 @@ export async function injectSpinner(tabId: number) {
   });
 }
 
-export async function updateSpinnerToGreenAndStatic(tabId: number) {
+async function updateSpinnerToGreenAndStatic(tabId: number) {
   return new Promise<void>((resolve) => {
     chrome.tabs.get(tabId, (tab) => {
       if (chrome.runtime.lastError || !tab) {
@@ -214,13 +215,13 @@ export async function updateSpinnerToGreenAndStatic(tabId: number) {
         {
           target: { tabId },
           func: (tokens: typeof successSpinnerTokens) => {
-            const spinner = document.getElementById('peer-spinner');
+            const spinner = document.getElementById('zkp2p-spinner');
             if (spinner) {
               spinner.style.animation = 'none';
               spinner.style.border = `6px solid ${tokens.successColor}`;
               spinner.style.borderTopColor = tokens.successColor;
             }
-            const title = document.getElementById('peer-title');
+            const title = document.getElementById('zkp2p-title');
             if (title) {
               title.innerText = 'Successfully Authenticated';
             }
@@ -240,59 +241,40 @@ export async function updateSpinnerToGreenAndStatic(tabId: number) {
   });
 }
 
-export function startCountdownAndClose(
-  tabId: number,
-  countdownSeconds = 3,
-  shouldSkipCloseTab = false,
-  getOriginalTabId: () => number | null = () => null,
-) {
-  let remaining = countdownSeconds;
-  const intervalId = setInterval(async () => {
-    remaining -= 1;
-    if (remaining <= 0) {
-      clearInterval(intervalId);
-      const originalTabId = getOriginalTabId();
-      if (originalTabId) {
-        chrome.tabs.get(originalTabId, (tab) => {
-          if (chrome.runtime.lastError || !tab) {
-            logger.error('Original tab not found:', originalTabId);
-          } else {
-            chrome.tabs.update(originalTabId, { active: true });
-          }
-        });
-      }
-      if (!shouldSkipCloseTab) {
-        chrome.tabs.remove(tabId, () => {
-          const lastError = chrome.runtime.lastError;
-          if (lastError) {
-            logger.warn(`[Background] Failed to close auth tab ${tabId}: ${lastError.message}`);
-            return;
-          }
-          logger.log('[Background] Closed new tab after success');
-        });
-      } else {
-        logger.log('[Background] Keeping authentication tab open due to shouldSkipCloseTab flag');
-      }
+export async function showAuthSuccessAndWait(tabId: number, countdownSeconds = 2): Promise<void> {
+  await updateSpinnerToGreenAndStatic(tabId);
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: async (seconds: number) => {
+        const redirectMsg = document.getElementById('zkp2p-redirect-msg');
+        for (let remaining = seconds; remaining > 0; remaining -= 1) {
+          if (redirectMsg) redirectMsg.textContent = `Redirecting in ${remaining}...`;
+          await new Promise((resolve) => setTimeout(resolve, 1_000));
+        }
+        document.getElementById('zkp2p-redirect-overlay')?.remove();
+      },
+      args: [countdownSeconds],
+    });
+  } catch (error) {
+    if (isMissingTabError(error)) {
+      logger.warn(`[Background] Auth tab ${tabId} closed before the success overlay finished`);
       return;
     }
+    logger.warn('[Background] Failed to show auth success overlay:', error);
+  } finally {
+    await removeAuthOverlay(tabId);
+  }
+}
 
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId },
-        func: (count) => {
-          const redirectMsg = document.getElementById('peer-redirect-msg') as HTMLElement | null;
-          if (!redirectMsg) return;
-          redirectMsg.textContent = `Redirecting in ${count}...`;
-        },
-        args: [remaining],
-      });
-    } catch (error) {
-      clearInterval(intervalId);
-      if (isMissingTabError(error)) {
-        logger.warn(`[Background] Auth tab ${tabId} closed before redirect countdown finished`);
-        return;
-      }
-      logger.error('[Background] Failed to update redirect countdown:', error);
-    }
-  }, 1000);
+export async function removeAuthOverlay(tabId: number): Promise<void> {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => document.getElementById('zkp2p-redirect-overlay')?.remove(),
+    });
+  } catch (error) {
+    if (isMissingTabError(error)) return;
+    logger.warn('[Background] Failed to remove auth overlay:', error);
+  }
 }

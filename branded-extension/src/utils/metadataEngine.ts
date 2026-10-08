@@ -1,5 +1,5 @@
 import type { RequestLog } from '@entries/Background/requestLog';
-import type { MetadataMessageType, ParamSelector, ProviderSettings } from '@utils/types';
+import type { MetadataMessageType, ProviderSettings } from '@utils/types';
 import {
   extractTransactions,
   extractValue,
@@ -8,7 +8,6 @@ import {
   parseJsonSafely,
   parseRequestBody,
   replayFallback,
-  type ReplayConstraints,
 } from '@utils/offscreenHelpers';
 
 export type ExtractionPayload = {
@@ -47,7 +46,6 @@ function hasXPathExtraction(cfg: ProviderSettings): boolean {
 export async function resolveMetadataPayload(
   reqs: { found?: RequestLog; fallback?: RequestLog },
   cfg: ProviderSettings,
-  replayConstraints: ReplayConstraints = {},
 ): Promise<ExtractionPayload> {
   const useMetadataUrl = !!cfg.metadata.metadataUrl;
   const wantsHtml = hasXPathExtraction(cfg);
@@ -57,7 +55,7 @@ export async function resolveMetadataPayload(
     if (!context) {
       throw new Error('metadataUrl specified but no matching request found for context');
     }
-    return await resolveViaReplay(context, cfg, wantsHtml, replayConstraints);
+    return await resolveViaReplay(context, cfg, wantsHtml);
   }
 
   if (reqs.found) {
@@ -71,20 +69,19 @@ export async function resolveMetadataPayload(
   if (!reqs.fallback) {
     throw new Error('No fallback request available for extraction');
   }
-  return await resolveViaReplay(reqs.fallback, cfg, wantsHtml, replayConstraints);
+  return await resolveViaReplay(reqs.fallback, cfg, wantsHtml);
 }
 
 async function resolveViaReplay(
   request: RequestLog,
   cfg: ProviderSettings,
   wantsHtml: boolean,
-  replayConstraints: ReplayConstraints,
 ): Promise<ExtractionPayload> {
-  const resp = await replayFallback(request, cfg, wantsHtml ? 'text' : 'json', replayConstraints);
+  const resp = await replayFallback(request, cfg, wantsHtml ? 'text' : 'json');
   const { str: bodyStr, json: bodyJson } = normalizeResponse(resp);
   return {
     request: {
-      ...buildReplayRequest(request, cfg, replayConstraints),
+      ...buildReplayRequest(request, cfg),
       responseBody: bodyStr,
     },
     bodyStr,
@@ -95,9 +92,40 @@ async function resolveViaReplay(
 export function extractTransactionsFromPayload(
   payload: ExtractionPayload,
   cfg: ProviderSettings,
+  includeBuyerTeeParams: boolean,
 ): MetadataMessageType[] {
   const responseInput = payload.bodyJson !== undefined ? payload.bodyJson : payload.bodyStr;
-  return extractTransactions(responseInput, cfg);
+  const metadata = extractTransactions(responseInput, cfg);
+  if (!includeBuyerTeeParams) {
+    return metadata;
+  }
+
+  return attachBuyerTeeParams(metadata, payload, cfg);
+}
+
+export function attachBuyerTeeParams(
+  metadata: MetadataMessageType[],
+  payload: ExtractionPayload,
+  cfg: ProviderSettings,
+): MetadataMessageType[] {
+  const responseBody =
+    payload.bodyJson === undefined ? payload.bodyStr : JSON.stringify(payload.bodyJson);
+  const publicParams = cfg.paramNames.flatMap((paramName, index) => {
+    const name = paramName.trim();
+    const selector = cfg.paramSelectors[index];
+    return name && selector?.source !== 'requestBody' ? [{ name, selector }] : [];
+  });
+
+  return metadata.map((row, fallbackIndex) => {
+    const originalIndex = Number.isInteger(row.originalIndex) ? row.originalIndex : fallbackIndex;
+    const params = Object.fromEntries(
+      publicParams.flatMap(({ name, selector }) => {
+        const value = extractValue(selector, payload.request, responseBody, originalIndex).trim();
+        return value ? [[name, value]] : [];
+      }),
+    );
+    return { ...row, params };
+  });
 }
 
 export function normalizeResponse(response: unknown): { str: string; json?: unknown } {
@@ -110,54 +138,4 @@ export function normalizeResponse(response: unknown): { str: string; json?: unkn
   } catch {
     return { str: String(response) };
   }
-}
-
-export function computeParamValues(
-  names: string[],
-  selectors: ParamSelector[],
-  request: RequestLog,
-  bodyStr: string,
-  originalIndex: number,
-): Record<string, string> {
-  const values: Record<string, string> = {};
-  names.forEach((name, index) => {
-    const selector = selectors[index];
-    values[name] = selector ? extractValue(selector, request, bodyStr, originalIndex) : '';
-  });
-  return values;
-}
-
-export async function resolveParamExtractionResponseBodyString({
-  dataRequest,
-  metadataPayload,
-  providerConfig,
-  replayConstraints,
-}: {
-  dataRequest: RequestLog;
-  metadataPayload?: ExtractionPayload;
-  providerConfig: ProviderSettings;
-  replayConstraints?: ReplayConstraints;
-}): Promise<string> {
-  if (providerConfig.metadata.metadataUrl) {
-    if (metadataPayload) {
-      return metadataPayload.bodyStr;
-    }
-    const replayedBody = await replayFallback(
-      dataRequest,
-      providerConfig,
-      'text',
-      replayConstraints,
-    );
-    return String(replayedBody ?? '');
-  }
-
-  let body = String(dataRequest.responseBody || '');
-  if (providerConfig.metadata.preprocessRegex) {
-    const pre = new RegExp(providerConfig.metadata.preprocessRegex);
-    const match = body.match(pre);
-    if (match?.[1]) {
-      body = match[1];
-    }
-  }
-  return body;
 }

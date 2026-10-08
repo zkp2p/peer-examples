@@ -7,6 +7,7 @@ export type RequestLog = {
   requestId: string;
   responseBody?: string;
   responseHeaders?: chrome.webRequest.HttpHeader[];
+  responseStatus?: number;
   tabId: number;
   timestamp?: number;
   type: chrome.webRequest.ResourceType;

@@ -1,5 +1,6 @@
 {
   "manifest_version": 3,
+  "minimum_chrome_version": "114",
   "name": "Acme Verify",
   "version": "0.1.1",
   "description": "Verify payments without sharing passwords or screenshots.",
@@ -19,7 +20,17 @@
     "type": "module"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; frame-ancestors 'none';"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; frame-ancestors 'none';",
+    "sandbox": "sandbox allow-scripts; default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'self';"
+  },
+  "sandbox": {
+    "pages": [
+      "capture-sandbox.html"
+    ]
+  },
+  "options_ui": {
+    "page": "manager.html",
+    "open_in_tab": true
   },
   "content_scripts": [
     {
@@ -76,6 +87,7 @@
   ],
   "permissions": [
     "offscreen",
+    "storage",
     "webRequest",
     "tabs",
     "scripting"

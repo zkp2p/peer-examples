@@ -40,7 +40,7 @@ if (!peer) {
 
 const status = await peer.checkConnectionStatus(); // 'connected' | 'disconnected' | 'pending'
 if (status !== 'connected') {
-  const approved = await peer.requestConnection(); // shows the in-page approval card
+  const approved = await peer.requestConnection(); // opens an extension-owned approval window
   if (!approved) return;
 }
 ```
@@ -67,11 +67,10 @@ const unsubscribe = peer.onMetadataMessage((data) => {
 });
 
 peer.authenticate({
-  platform: 'venmo',           // which payment platform
-  actionType: 'transfer',      // which provider action
+  platform: 'example',         // provider key
+  actionType: 'transfer',      // provider action
   captureMode: 'buyerTee',     // 'buyerTee' | 'sellerCredential'
   attestationServiceUrl: 'https://attestation-service.zkp2p.xyz',
-  providerConfig: { /* see below */ },
 });
 
 // later:
@@ -82,46 +81,64 @@ unsubscribe();
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `platform` | `string` | Payment platform key. Required. |
-| `actionType` | `string` | Provider action key. Required. |
-| `captureMode` | `'buyerTee' \| 'sellerCredential'` | Which encrypted capture pipeline to run. |
-| `attestationServiceUrl` | `string \| null` | Defaults to the extension's configured attestation service. |
-| `attestationActionType` | `string \| null` | Optional override for the attested action. |
-| `providerConfig` | `ProviderSettings` | Optional. **If you pass it, pass a complete config** (see next section). If omitted, the extension fetches one from `${apiBaseUrl}/providers/<platform>/<actionType>.json`. |
+| `platform`, `actionType` | `string` | Required provider key and action. |
+| `captureMode` | `'buyerTee' \| 'sellerCredential'` | Omit for metadata-only capture. |
+| `attestationServiceUrl` | `string \| null` | Must match the endpoint in `brand.config.json` for Buyer TEE. |
+| `capturePlugin` | plugin JSON | Optional explicit local plugin; replaces the template path. Its `id` must equal `<platform>/<actionType>`. |
+| `captureParams` | flat values | Optional verifier match values passed to the plugin. |
+| `initialAction` | object | Optional symbolic page actions and inputs. |
 
-## 4. Pass a COMPLETE inline `providerConfig` (or none)
+When `capturePlugin` is omitted, the extension fetches the template at
+`${apiBaseUrl}/providers/<platform>/<actionType>.json`. Inline
+`providerConfig` is no longer accepted.
 
-`providerConfig` is **not merged** with a fetched template. It replaces it. If
-you pass a partial object, capture will misbehave because the required fields
-(`authLink`, the `metadata` matchers) will be missing. So either:
+A plugin has `id`, `name`, `authLink`, `origins`, `shouldSkipCloseTab`, and
+`source` fields; optional `focusOnOpen: false` starts a background tab.
+`source` defines a required `match({ request, params })` and a
+`capture({ event, params })` function. Optional `interact({ inputs, url })` can
+request bounded page actions. The extension runs these functions in a local
+QuickJS sandbox. The host controls replay, navigation, queries, and page actions.
 
-- **omit `providerConfig`** and let the extension fetch the canonical template
-  from your API, or
-- **pass a full `ProviderSettings`** including at least `authLink` and a complete
-  `metadata` block (`platform`, `urlRegex`, and the click-guide fields).
+A plugin may target only HTTPS provider origins already included in
+`brand.config.json` `hostDomains`. Each requesting origin approves each new or
+changed plugin digest in the extension-owned prompt. A registry match labels the
+plugin verified, but does not skip approval. Unknown hashes require explicit
+risk acknowledgement. Users can remove installs in extension Settings.
 
-```ts
-// Minimal shape: every field the run needs must be present.
-const providerConfig = {
-  authLink: 'https://www.example-bank.com/login',
-  metadata: {
-    platform: 'venmo',
-    urlRegex: 'https://api\\.example-bank\\.com/transactions\\?.*',
-    // ...the remaining metadata fields your platform needs
-  },
-};
-```
+## In-page capture
 
-When in doubt, omit it and rely on the fetched template. That is the path the
-extension is tuned for.
+For providers that encrypt their API traffic inside the page, a plugin may declare
+`pageCapture: { request: { method, url }, session }`. It requires
+`captureMode: 'buyerTee'` and the configured attestation service. The exact request
+URL must belong to a declared plugin origin already allowed by `hostDomains`.
+
+After a provider document loads, the host observes its first successful same-origin
+fetch to that URL. It snapshots the request before the page's fetch wrapper can
+rewrite it, then passes the plaintext exchange to `match()` and `capture()`.
+`match()` must return `true`; replay targets are rejected. No request is replayed
+or intercepted on this path.
+
+`session` maps attestor field names to `{ storage: 'key' }` or
+`{ storage: 'key.property' }` for one property of a JSON localStorage entry.
+Optional `encoding: 'p256RawPublicKey'` exports a stored P-256 public JWK as its
+raw point in unpadded base64url. Declare only the fields your attestor needs.
+Storage values are encrypted by the host and never passed to QuickJS or the
+requesting site. The request and storage declarations are covered by the plugin
+digest, so changing them requires fresh approval.
+
+An unreadable exchange or missing storage value ends capture with an error;
+reconnect and start a new capture. The observer expires after 15 minutes in a
+loaded document and is removed on completion or tab close. A navigation discards
+the old document's observer and arms the newly loaded document. Responses and
+each storage entry are bounded to 2 MiB; only string request bodies are supported.
+No provider-specific plugin or gateway integration is bundled in this example.
 
 ## Result delivery and consent
 
 - Results arrive on **every** `onMetadataMessage` listener; filter by
   `data.requestId` if you run concurrent flows.
-- For requests the user must explicitly approve, the extension shows an in-page
-  confirmation before the result is shared with your page. A rejection arrives as
-  a `data.errorMessage`, not a thrown error.
+- Plugin install and third-party connection requests use extension-owned approval.
+  A rejection arrives as `data.errorMessage`, not a thrown error.
 - `metadata` is an array of payment rows; the encrypted capture payloads you submit to your
   backend are in `buyerTeeCapture` / `sarCredentialCapture` depending on
   `captureMode`.
@@ -143,7 +160,15 @@ declare global {
         captureMode?: 'buyerTee' | 'sellerCredential';
         attestationServiceUrl?: string | null;
         attestationActionType?: string | null;
-        providerConfig?: unknown;
+        capturePlugin?: {
+          id: string; name: string; authLink: string; origins: string[];
+          shouldSkipCloseTab: boolean; focusOnOpen?: boolean; source: string;
+          pageCapture?: {
+            request: { method: 'GET' | 'POST'; url: string };
+            session: Record<string, { storage: string; encoding?: 'p256RawPublicKey' }>;
+          };
+        };
+        captureParams?: Record<string, string | number | boolean>;
       }): void;
       onMetadataMessage(cb: (data: {
         requestId: string;
