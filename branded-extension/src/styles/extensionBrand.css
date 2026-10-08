@@ -12,7 +12,7 @@
   --peer-ignite-yellow: var(--brand);
   --peer-error: #ef4444;
   --peer-gradient-ignite: var(--brand);
-  --peer-gradient-ignite-hover: var(--accent);
+  --peer-gradient-ignite-hover: var(--brand);
   --peer-font-body: inherit;
   --peer-font-headline: inherit;
   --peer-font-size-caption: 0.75rem;
