@@ -80,6 +80,34 @@ describe('buyer TEE capture staging', () => {
     });
   });
 
+  it('encrypts declared page session material without extracting network credentials', async () => {
+    rememberBuyerTeeCapture(7, {
+      actionType: 'transfer_sample',
+      attestationServiceUrl: 'https://attestor.example',
+      platform: 'samplepay',
+    });
+    const sessionMaterial = { gatewayState: 'private-session' };
+    const result = await stageBuyerTeeCaptureForMetadata({
+      metadata: [],
+      params: { PAYMENT_ID: 'payment-1' },
+      request: buildRequestLog(),
+      sessionMaterial,
+      tabId: 7,
+    });
+    expect(prepareBuyerTeeCaptureMaterialMock).not.toHaveBeenCalled();
+    expect(encryptBuyerTeeSessionMaterialInBackgroundMock).toHaveBeenCalledWith({
+      actionType: 'transfer_sample',
+      attestationServiceUrl: 'https://attestor.example',
+      platform: 'samplepay',
+      sessionMaterial,
+    });
+    expect(result.capture).toEqual({
+      encryptedSessionMaterial: 'encrypted-session-material',
+      matchedParams: { PAYMENT_ID: 'payment-1' },
+    });
+    expect(JSON.stringify(result)).not.toContain('private-session');
+  });
+
   it('stages params already extracted under the offscreen replay policy', async () => {
     rememberBuyerTeeCapture(7, {
       actionType: 'transfer_sample',

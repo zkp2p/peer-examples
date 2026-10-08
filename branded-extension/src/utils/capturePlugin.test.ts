@@ -36,6 +36,64 @@ describe('capture plugin validation', () => {
     );
   });
 
+  const pageCapture = {
+    request: { method: 'POST' as const, url: 'https://provider.example/api/receipt' },
+    session: {
+      gatewayState: { storage: 'gateway' },
+      browserId: { encoding: 'p256RawPublicKey' as const, storage: 'browserId.publicKey' },
+    },
+  };
+  const withField = (field: unknown) => ({ ...pageCapture, session: { field } });
+
+  it('accepts an in-page request on a declared origin', () => {
+    expect(assertCapturePlugin({ ...plugin, pageCapture }, plugin.id).pageCapture).toEqual(
+      pageCapture,
+    );
+  });
+
+  it.each([
+    null,
+    { session: pageCapture.session },
+    { request: pageCapture.request },
+    { ...pageCapture, extra: true },
+    { ...pageCapture, request: { ...pageCapture.request, method: 'PUT' } },
+    { ...pageCapture, request: { ...pageCapture.request, headers: {} } },
+    { ...pageCapture, request: { ...pageCapture.request, url: 'https://other.example/api' } },
+    { ...pageCapture, request: { ...pageCapture.request, url: 'http://provider.example/api' } },
+    { ...pageCapture, request: { ...pageCapture.request, url: `${pageCapture.request.url}#x` } },
+    { ...pageCapture, session: {} },
+    { ...pageCapture, session: [] },
+    { ...pageCapture, session: { '1field': { storage: 'gateway' } } },
+    { ...pageCapture, session: { 'bad field': { storage: 'gateway' } } },
+    withField('gateway'),
+    withField({}),
+    withField({ storage: '' }),
+    withField({ storage: 'browserId.publicKey.x' }),
+    withField({ storage: 'browserId.' }),
+    withField({ storage: 1 }),
+    withField({ storage: 'browserId', encoding: 'jwk' }),
+    withField({ storage: 'browserId', extra: true }),
+    {
+      ...pageCapture,
+      session: Object.fromEntries(
+        Array.from({ length: 9 }, (_, index) => [`field${index}`, { storage: 'gateway' }]),
+      ),
+    },
+  ])('rejects an invalid page capture %j', (value) => {
+    expect(() => assertCapturePlugin({ ...plugin, pageCapture: value }, plugin.id)).toThrow();
+  });
+
+  it('binds the page capture request and session fields into the approved digest', async () => {
+    const digest = await capturePluginDigest({ ...plugin, pageCapture });
+    expect(digest).not.toBe(await capturePluginDigest(plugin));
+    expect(digest).not.toBe(
+      await capturePluginDigest({
+        ...plugin,
+        pageCapture: { ...pageCapture, session: { gatewayState: { storage: 'gateway' } } },
+      }),
+    );
+  });
+
   it('accepts the plugin JSON and builds origin filters', () => {
     expect(assertCapturePlugin(plugin, plugin.id)).toEqual({
       ...plugin,

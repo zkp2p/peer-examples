@@ -1265,6 +1265,222 @@ describe('plugin capture sessions', () => {
     },
   );
 
+  describe('page capture', () => {
+    const pagePlugin = {
+      ...plugin,
+      pageCapture: {
+        request: { method: 'POST' as const, url: 'https://provider.example/api/receipt' },
+        session: {
+          gatewayState: { storage: 'gateway' },
+          browserId: { encoding: 'p256RawPublicKey' as const, storage: 'browserId.publicKey' },
+        },
+      },
+    };
+    const observed = {
+      captured: true,
+      requestBody: '{"id":"payment-1"}',
+      responseBody: '{"paymentId":"payment-1"}',
+      responseStatus: 200,
+      session: { gatewayState: 'private-gateway', browserId: 'private-browser' },
+    };
+    const loadedTab = { id: 22, status: 'complete', url: plugin.authLink } as chrome.tabs.Tab;
+
+    async function openPageCapture() {
+      mocks.resolveBuyerCapture.mockReturnValue({
+        config: {
+          actionType: 'transfer_provider',
+          attestationServiceUrl: 'https://attestor.example',
+          platform: 'provider',
+        },
+        error: null,
+      } as never);
+      mocks.installPlugin.mockResolvedValue(pagePlugin);
+      const sessionModule = await loadSession();
+      await sessionModule.openPluginCaptureSession(
+        {
+          actionType: 'transfer_provider',
+          captureMode: 'buyerTee',
+          capturePlugin: pagePlugin,
+          platform: 'provider',
+        },
+        source,
+      );
+      return sessionModule;
+    }
+
+    it('requires buyer TEE capture before asking for permission', async () => {
+      const { openPluginCaptureSession } = await loadSession();
+      await expect(
+        openPluginCaptureSession(
+          { actionType: 'transfer_provider', capturePlugin: pagePlugin, platform: 'provider' },
+          source,
+          ),
+      ).rejects.toThrow('Capture plugin page capture requires buyer TEE capture.');
+      expect(mocks.installPlugin).not.toHaveBeenCalled();
+      expect(mocks.tabsCreate).not.toHaveBeenCalled();
+    });
+
+    it('stages the observed exchange with page storage and never intercepts the network', async () => {
+      const { handlePluginTabUpdated } = await openPageCapture();
+      const { observePageRequest } = await import('./pageCaptureHook');
+      expect(mocks.setInterceptPatterns).not.toHaveBeenCalled();
+      expect(mocks.setRequestCaptureHandler).not.toHaveBeenCalled();
+      mocks.executeScript.mockResolvedValueOnce([{ result: observed }] as never);
+      mocks.runtimeSendMessage.mockResolvedValue({
+        result: { PAYMENT_ID: 'payment-1' },
+        success: true,
+      });
+      mocks.stageBuyerCapture.mockResolvedValue({
+        capture: { encryptedSessionMaterial: 'sealed', matchedParams: { PAYMENT_ID: 'payment-1' } },
+        errorMessage: null,
+        metadata: [],
+      });
+
+      handlePluginTabUpdated(22, { status: 'complete' }, loadedTab);
+      await flush();
+
+      expect(mocks.executeScript).toHaveBeenCalledWith({
+        target: { tabId: 22 },
+        world: 'MAIN',
+        func: observePageRequest,
+        args: [
+          {
+            ...pagePlugin.pageCapture,
+            cancelEvent: expect.stringMatching(/^peer-page-capture-/),
+            maxBytes: 2 * 1024 * 1024,
+          },
+        ],
+      });
+      expect(mocks.matchRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            request: {
+              body: '{"id":"payment-1"}',
+              method: 'POST',
+              url: pagePlugin.pageCapture.request.url,
+            },
+          }),
+        }),
+      );
+      expect(mocks.replayRequest).not.toHaveBeenCalled();
+      expect(mocks.replayRequestInPage).not.toHaveBeenCalled();
+      expect(mocks.stageBuyerCapture).toHaveBeenCalledWith({
+        metadata: [],
+        params: { PAYMENT_ID: 'payment-1' },
+        request: {
+          initiator: 'https://provider.example',
+          method: 'POST',
+          requestBody: '{"id":"payment-1"}',
+          requestHeaders: [],
+          requestId: 'page-capture',
+          responseBody: '{"paymentId":"payment-1"}',
+          responseStatus: 200,
+          tabId: 22,
+          type: 'xmlhttprequest',
+          url: pagePlugin.pageCapture.request.url,
+        },
+        sessionMaterial: observed.session,
+        tabId: 22,
+      });
+      expect(JSON.stringify(mocks.tabsSendMessage.mock.calls)).not.toContain('private-');
+      expect(JSON.stringify(mocks.runtimeSendMessage.mock.calls)).not.toContain('private-');
+      expect(mocks.tabsSendMessage).toHaveBeenCalledWith(
+        11,
+        expect.objectContaining({
+          data: expect.objectContaining({
+            buyerTeeCapture: {
+              encryptedSessionMaterial: 'sealed',
+              matchedParams: { PAYMENT_ID: 'payment-1' },
+            },
+          }),
+        }),
+        undefined,
+        { documentId: source.documentId, frameId: source.frameId },
+      );
+    });
+
+    it('rejects a replay target for an observed request', async () => {
+      const { handlePluginTabUpdated } = await openPageCapture();
+      mocks.executeScript.mockResolvedValueOnce([{ result: observed }] as never);
+      mocks.matchRequest.mockResolvedValue({
+        result: { body: null, method: 'GET', url: 'https://provider.example/api/other' },
+        success: true,
+      });
+
+      handlePluginTabUpdated(22, { status: 'complete' }, loadedTab);
+      await flush();
+
+      expect(mocks.stageBuyerCapture).not.toHaveBeenCalled();
+      expect(mocks.tabsSendMessage).toHaveBeenCalledWith(
+        11,
+        expect.objectContaining({
+          data: expect.objectContaining({
+            errorMessage: 'A page capture cannot replay another request.',
+          }),
+        }),
+        undefined,
+        { documentId: source.documentId, frameId: source.frameId },
+      );
+    });
+
+    it('waits for the next request in the same document after the plugin ignores one', async () => {
+      const { handlePluginTabUpdated } = await openPageCapture();
+      mocks.executeScript
+        .mockResolvedValueOnce([{ result: observed }] as never)
+        .mockReturnValueOnce(new Promise(() => {}) as never);
+      mocks.matchRequest.mockResolvedValue({ result: false, success: true });
+      mocks.tabsGet.mockResolvedValue(loadedTab);
+
+      handlePluginTabUpdated(22, { status: 'complete' }, loadedTab);
+      await flush();
+
+      expect(mocks.executeScript).toHaveBeenCalledTimes(2);
+      expect(mocks.stageBuyerCapture).not.toHaveBeenCalled();
+      expect(mocks.tabsSendMessage).not.toHaveBeenCalled();
+    });
+
+    it('cancels the observer on tab close and ignores its late result', async () => {
+      const { handlePluginTabUpdated, handlePluginTabRemoved } = await openPageCapture();
+      const { cancelPageRequestObserver } = await import('./pageCaptureHook');
+      let complete: (value: unknown) => void = () => {};
+      mocks.executeScript.mockReturnValueOnce(new Promise((resolve) => {
+        complete = resolve;
+      }) as never);
+      handlePluginTabUpdated(22, { status: 'complete' }, loadedTab);
+      handlePluginTabRemoved(22);
+      expect(mocks.executeScript).toHaveBeenLastCalledWith({
+        target: { tabId: 22 },
+        world: 'MAIN',
+        func: cancelPageRequestObserver,
+        args: [expect.stringMatching(/^peer-page-capture-/)],
+      });
+      complete([{ result: observed }]);
+      await flush();
+      expect(mocks.stageBuyerCapture).not.toHaveBeenCalled();
+      expect(mocks.matchRequest).not.toHaveBeenCalled();
+    });
+
+    it('ends the session with the in-page failure', async () => {
+      const { handlePluginTabUpdated } = await openPageCapture();
+      mocks.executeScript.mockResolvedValueOnce([
+        { result: { captured: false, error: 'Capture expired. Start a new capture.' } },
+      ] as never);
+
+      handlePluginTabUpdated(22, { status: 'complete' }, loadedTab);
+      await flush();
+
+      expect(mocks.tabsSendMessage).toHaveBeenCalledWith(
+        11,
+        expect.objectContaining({
+          data: expect.objectContaining({ errorMessage: 'Capture expired. Start a new capture.' }),
+        }),
+        undefined,
+        { documentId: source.documentId, frameId: source.frameId },
+      );
+      expect(mocks.tabsRemove).toHaveBeenCalledWith(22);
+    });
+  });
+
   it('completes background capture without switching focus or showing a countdown', async () => {
     const { openPluginCaptureSession } = await loadSession();
     mocks.tabsGet.mockResolvedValue({ id: 22, active: false, windowId: 1 });

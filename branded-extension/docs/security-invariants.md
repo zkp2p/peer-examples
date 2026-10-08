@@ -13,6 +13,10 @@ Rebranding must preserve these boundaries. Review them before each release.
   filesystem, timers, or `chrome.*`. Only bounded `match`, `capture`, and
   `interact` results cross to the privileged host. The host validates origins,
   replay targets, GraphQL queries, navigation, and page actions.
+- In-page capture requires buyer TEE mode and an approved digest covering the
+  exact request and storage declarations. The observer reads only a same-origin
+  exchange; replay targets are rejected. Storage values go only to host encryption,
+  never to QuickJS or the requesting site. Cleanup removes the active observer.
 - `webRequest` observes requests and never blocks or modifies them.
 
 ## Stored state

@@ -105,6 +105,34 @@ changed plugin digest in the extension-owned prompt. A registry match labels the
 plugin verified, but does not skip approval. Unknown hashes require explicit
 risk acknowledgement. Users can remove installs in extension Settings.
 
+## In-page capture
+
+For providers that encrypt their API traffic inside the page, a plugin may declare
+`pageCapture: { request: { method, url }, session }`. It requires
+`captureMode: 'buyerTee'` and the configured attestation service. The exact request
+URL must belong to a declared plugin origin already allowed by `hostDomains`.
+
+After a provider document loads, the host observes its first successful same-origin
+fetch to that URL. It snapshots the request before the page's fetch wrapper can
+rewrite it, then passes the plaintext exchange to `match()` and `capture()`.
+`match()` must return `true`; replay targets are rejected. No request is replayed
+or intercepted on this path.
+
+`session` maps attestor field names to `{ storage: 'key' }` or
+`{ storage: 'key.property' }` for one property of a JSON localStorage entry.
+Optional `encoding: 'p256RawPublicKey'` exports a stored P-256 public JWK as its
+raw point in unpadded base64url. Declare only the fields your attestor needs.
+Storage values are encrypted by the host and never passed to QuickJS or the
+requesting site. The request and storage declarations are covered by the plugin
+digest, so changing them requires fresh approval.
+
+An unreadable exchange or missing storage value ends capture with an error;
+reconnect and start a new capture. The observer expires after 15 minutes in a
+loaded document and is removed on completion or tab close. A navigation discards
+the old document's observer and arms the newly loaded document. Responses and
+each storage entry are bounded to 2 MiB; only string request bodies are supported.
+No provider-specific plugin or gateway integration is bundled in this example.
+
 ## Result delivery and consent
 
 - Results arrive on **every** `onMetadataMessage` listener; filter by
@@ -135,6 +163,10 @@ declare global {
         capturePlugin?: {
           id: string; name: string; authLink: string; origins: string[];
           shouldSkipCloseTab: boolean; focusOnOpen?: boolean; source: string;
+          pageCapture?: {
+            request: { method: 'GET' | 'POST'; url: string };
+            session: Record<string, { storage: string; encoding?: 'p256RawPublicKey' }>;
+          };
         };
         captureParams?: Record<string, string | number | boolean>;
       }): void;

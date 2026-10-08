@@ -1,5 +1,9 @@
 import { logger } from '@utils/logger';
-import type { BuyerTeePaymentCapture, BuyerTeePaymentParams } from '@utils/buyerTeePaymentCapture';
+import type {
+  BuyerTeePaymentCapture,
+  BuyerTeePaymentParams,
+  BuyerTeeSessionMaterial,
+} from '@utils/buyerTeePaymentCapture';
 import type { MetadataCaptureMode } from '@utils/metadataCaptureMode';
 import type { MetadataMessageType } from '@utils/types';
 import { resolveTrustedAttestationServiceUrl } from '@utils/trustedAttestationService';
@@ -103,11 +107,13 @@ export async function stageBuyerTeeCaptureForMetadata({
   metadata,
   params,
   request,
+  sessionMaterial,
   tabId,
 }: {
   metadata?: MetadataMessageType[];
   params?: BuyerTeePaymentParams;
   request: RequestLog;
+  sessionMaterial?: BuyerTeeSessionMaterial;
   tabId: number | null | undefined;
 }): Promise<StageBuyerTeeCaptureResult> {
   if (typeof tabId !== 'number') {
@@ -120,10 +126,9 @@ export async function stageBuyerTeeCaptureForMetadata({
   }
 
   try {
-    const captureMaterial = prepareBuyerTeeCaptureMaterial({
-      metadata,
-      request,
-    });
+    const captureMaterial = sessionMaterial
+      ? { metadata, sessionMaterial }
+      : prepareBuyerTeeCaptureMaterial({ metadata, request });
     const encryptedSessionMaterial = await encryptBuyerTeeSessionMaterialInBackground({
       actionType: captureConfig.actionType,
       attestationServiceUrl: captureConfig.attestationServiceUrl,

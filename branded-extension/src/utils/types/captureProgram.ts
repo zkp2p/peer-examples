@@ -9,6 +9,23 @@ export const MAX_NETWORK_BODY_BYTES = 2 * 1024 * 1024;
 
 export type CaptureParams = Record<string, string | number | boolean>;
 
+/** A Buyer TEE session field read from the provider page's localStorage. */
+export type PageCaptureSessionField = {
+  /** `p256RawPublicKey`: the P-256 JWK's raw point as unpadded base64url. */
+  encoding?: 'p256RawPublicKey';
+  /** A localStorage key, or `key.property` for one property of a JSON entry. */
+  storage: string;
+};
+
+/**
+ * Observe `request` inside the provider page instead of on the network. The
+ * `session` fields are the sealed Buyer TEE session; capture JS never sees them.
+ */
+export type CapturePluginPageCapture = {
+  request: { method: 'GET' | 'POST'; url: string };
+  session: Record<string, PageCaptureSessionField>;
+};
+
 export type PeerCapturePlugin = {
   authLink: string;
   /** Defaults to foreground capture; false waits until interaction is needed. */
@@ -16,6 +33,7 @@ export type PeerCapturePlugin = {
   id: string;
   name: string;
   origins: string[];
+  pageCapture?: CapturePluginPageCapture;
   shouldSkipCloseTab: boolean;
   /** Defines match(), capture(), and optional interact() hooks. */
   source: string;

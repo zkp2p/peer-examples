@@ -1,5 +1,9 @@
-import type { PeerCapturePlugin, PeerInitialAction } from '@utils/types/captureProgram';
-import type { BuyerTeePaymentParams } from '@utils/buyerTeePaymentCapture';
+import type {
+  CapturePluginPageCapture,
+  PeerCapturePlugin,
+  PeerInitialAction,
+} from '@utils/types/captureProgram';
+import type { BuyerTeePaymentParams, BuyerTeeSessionMaterial } from '@utils/buyerTeePaymentCapture';
 import { captureNavigationUrl } from '@utils/captureNavigation';
 import { captureHighlight } from '@utils/captureHighlight';
 import { captureQuery } from '@utils/captureQuery';
@@ -58,6 +62,8 @@ import {
   setRequestCaptureHandler,
 } from './handlers';
 import { ensureOffscreenDocument } from './offscreenDocument';
+import { handlePageCaptureTabUpdated, stopPageCapture, watchPageCapture } from './pageCapture';
+import type { PageCaptureResult } from './pageCaptureHook';
 import type { RequestLog } from './requestLog';
 import {
   clearSarCredentialCapture,
@@ -193,6 +199,7 @@ function sendToSource(session: PluginCaptureSession, message: unknown): Promise<
 function cleanup(session: PluginCaptureSession): void {
   void stopCaptureHighlight(session);
   stopCaptureLoginDetection(session.authTabId);
+  stopPageCapture(session.authTabId);
   clearCaptureSearchOverlayTimer(session);
   clearInterceptPatterns(session.authTabId);
   clearSarCredentialCapture(session.authTabId);
@@ -230,6 +237,7 @@ async function deliver(
   metadata: MetadataMessageType[],
   params: BuyerTeePaymentParams | undefined,
   captureError?: string,
+  sessionMaterial?: BuyerTeeSessionMaterial,
 ): Promise<boolean> {
   const buyerTeeResult = captureError
     ? { capture: null, errorMessage: null, metadata: undefined }
@@ -237,6 +245,7 @@ async function deliver(
         metadata,
         params,
         request,
+        ...(sessionMaterial ? { sessionMaterial } : {}),
         tabId: session.authTabId,
       });
   const sarResult = captureError
@@ -304,7 +313,12 @@ function replayTargetKey(target: CaptureReplayTarget): string {
   return `${target.method} ${target.url}\n${target.body ?? ''}`;
 }
 
-async function runCapture(session: PluginCaptureSession, request: RequestLog): Promise<void> {
+/** `pageSession` marks a request observed inside the page: it carries its response. */
+async function runCapture(
+  session: PluginCaptureSession,
+  request: RequestLog,
+  pageSession?: BuyerTeeSessionMaterial,
+): Promise<void> {
   if (session.hasSentMetadata || session.isExtracting) return;
   let documentGeneration = session.documentGeneration;
   let claimed = false;
@@ -329,6 +343,9 @@ async function runCapture(session: PluginCaptureSession, request: RequestLog): P
     if (!match) throw new Error('Capture sandbox did not respond.');
     if (!match.success) throw new Error(match.error);
     if (match.result === false) return;
+    if (pageSession && match.result !== true) {
+      throw new Error('A page capture cannot replay another request.');
+    }
     if (stale()) return;
     // Legacy metadataUrl/fallback parity: a target makes the matched request the
     // context only. Replay the target with this request's session headers and
@@ -366,15 +383,17 @@ async function runCapture(session: PluginCaptureSession, request: RequestLog): P
     session.captureSearchCount += 1;
     searchStarted = true;
     scheduleCaptureSearchOverlay(session);
-    const replay = replayOriginScope
-      ? await replayTargetInPage(session.authTabId, request, replayOriginScope)
-      : await replayRequest(request, 'error');
-    if (stale()) return;
-    if (replayTarget && (replay.status < 200 || replay.status >= 300)) {
-      // The host chose to fetch this URL, so a failure is the host's to report.
-      throw new Error(`Provider replied ${replay.status} to the replayed request.`);
+    if (!pageSession) {
+      const replay = replayOriginScope
+        ? await replayTargetInPage(session.authTabId, request, replayOriginScope)
+        : await replayRequest(request, 'error');
+      if (stale()) return;
+      if (replayTarget && (replay.status < 200 || replay.status >= 300)) {
+        // The host chose to fetch this URL, so a failure is the host's to report.
+        throw new Error(`Provider replied ${replay.status} to the replayed request.`);
+      }
+      request = { ...request, responseBody: replay.text, responseStatus: replay.status };
     }
-    request = { ...request, responseBody: replay.text, responseStatus: replay.status };
 
     const response = await safeChromeRuntimeSendMessage<ExecuteCaptureProgramOffscreenResponse>({
       action: BackgroundToOffscreenAction.EXECUTE_CAPTURE_PROGRAM_OFFSCREEN,
@@ -477,7 +496,7 @@ async function runCapture(session: PluginCaptureSession, request: RequestLog): P
     const params = Array.isArray(response.result)
       ? undefined
       : (response.result as BuyerTeePaymentParams);
-    const delivered = await deliver(session, request, metadata, params);
+    const delivered = await deliver(session, request, metadata, params, undefined, pageSession);
     cleanup(session);
     if (delivered) {
       await finishCaptureTab(
@@ -516,6 +535,40 @@ async function runCapture(session: PluginCaptureSession, request: RequestLog): P
     }
     if (claimed) session.isExtracting = false;
   }
+}
+
+async function capturePage(
+  session: PluginCaptureSession,
+  { method, url }: CapturePluginPageCapture['request'],
+  result: PageCaptureResult,
+): Promise<void> {
+  if (!result.captured) {
+    if (result.error) {
+      session.hasSentMetadata = true;
+      cleanup(session);
+      notifyCaptureError(session, result.error);
+      void chrome.tabs.remove(session.authTabId);
+    }
+    return;
+  }
+  const { requestBody, responseBody, responseStatus } = result;
+  // The observed exchange carries no headers: page storage is its session.
+  await runCapture(
+    session,
+    {
+      initiator: new URL(url).origin,
+      method,
+      ...(requestBody !== null ? { requestBody } : {}),
+      requestHeaders: [],
+      requestId: 'page-capture',
+      responseBody,
+      responseStatus,
+      tabId: session.authTabId,
+      type: 'xmlhttprequest',
+      url,
+    },
+    result.session,
+  );
 }
 
 function captureLoadedPage(session: PluginCaptureSession, tab: chrome.tabs.Tab): void {
@@ -626,6 +679,9 @@ export async function openPluginCaptureSession(
   data: OpenNewTabPagePayload & { capturePlugin: PeerCapturePlugin },
   source: CaptureRequestSource,
 ): Promise<void> {
+  if (data.capturePlugin.pageCapture && data.captureMode !== 'buyerTee') {
+    throw new Error('Capture plugin page capture requires buyer TEE capture.');
+  }
   const initialAction = assertInitialAction(data.initialAction);
   const captureParams = assertCaptureParams(data.captureParams);
   const sarConfig = resolveSarCredentialCaptureConfig({
@@ -683,26 +739,33 @@ export async function openPluginCaptureSession(
     sourceOrigin: source.origin,
   };
   sessions.set(authTabId, session);
-  setInterceptPatterns(captureOriginPatterns(plugin), authTabId);
   setMainFrameNavigationHandler(authTabId, () => {
     // A main-frame request is the only signal that a new document is coming.
     // Late subframe loads and history.replaceState also toggle the tab's
     // loading status, and must not invalidate an in-flight capture.
     invalidateDocument(session);
   });
-  setRequestCaptureHandler(authTabId, (request) => {
-    if (request.type !== 'main_frame') {
-      void runCapture(session, request);
-      return;
-    }
-    // Main-frame response headers arrive before the navigation's loading event.
-    // Wait for the loaded document so that event cannot invalidate its own capture.
-    session.pendingPageRequest = request;
-    void chrome.tabs
-      .get(authTabId)
-      .then((tab) => captureLoadedPage(session, tab))
-      .catch(() => {});
-  });
+  if (plugin.pageCapture) {
+    const { pageCapture } = plugin;
+    watchPageCapture(authTabId, pageCapture, (result) =>
+      capturePage(session, pageCapture.request, result),
+    );
+  } else {
+    setInterceptPatterns(captureOriginPatterns(plugin), authTabId);
+    setRequestCaptureHandler(authTabId, (request) => {
+      if (request.type !== 'main_frame') {
+        void runCapture(session, request);
+        return;
+      }
+      // Main-frame response headers arrive before the navigation's loading event.
+      // Wait for the loaded document so that event cannot invalidate its own capture.
+      session.pendingPageRequest = request;
+      void chrome.tabs
+        .get(authTabId)
+        .then((tab) => captureLoadedPage(session, tab))
+        .catch(() => {});
+    });
+  }
   rememberSarCredentialCapture(authTabId, sarConfig.config);
   rememberBuyerTeeCapture(authTabId, buyerTeeConfig.config);
   try {
@@ -730,6 +793,7 @@ export function handlePluginTabUpdated(
 ): boolean {
   const session = sessions.get(tabId);
   if (!session) return false;
+  handlePageCaptureTabUpdated(tabId, changeInfo, tab);
   if (session.highlight && changeInfo.url) {
     const url = new URL(changeInfo.url);
     if (`${url.origin}${url.pathname}` !== session.highlight.expectedUrl)

@@ -28,6 +28,9 @@ To verify a payment you initiate, the Extension:
 
 - Opens your payment provider in a browser tab and observes the specific network
   responses that contain the transaction you are verifying.
+- For an approved in-page plugin, observes the selected fetch inside the provider
+  page and reads only the declared localStorage entries as session material.
+  These entries are never shared with plugins or the requesting website.
 - Encrypts the relevant session material **on your device** before any
   transmission.
 - Submits the encrypted material to the attestation service at

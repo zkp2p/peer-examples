@@ -1,6 +1,11 @@
 import { BRAND } from '@config/brand';
-import type { PeerCapturePlugin, PeerInitialAction } from '@utils/types/captureProgram';
-import { byteLength } from './valueGuards';
+import type {
+  CapturePluginPageCapture,
+  PageCaptureSessionField,
+  PeerCapturePlugin,
+  PeerInitialAction,
+} from '@utils/types/captureProgram';
+import { byteLength, isRecord } from './valueGuards';
 import { MAX_CAPTURE_SOURCE_BYTES, type CaptureParams } from '@utils/types/captureProgram';
 
 const MAX_CAPTURE_ORIGINS = 8;
@@ -9,6 +14,10 @@ const MAX_CAPTURE_PARAM_NAME_LENGTH = 128;
 const MAX_INPUTS = 10;
 const MAX_INPUT_VALUE_BYTES = 16 * 1024;
 const MAX_PLUGIN_NAME_LENGTH = 80;
+const MAX_SESSION_FIELDS = 8;
+const SESSION_FIELD_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/u;
+/** A localStorage key, or `key.property` for one property of a JSON entry. */
+const STORAGE_ENTRY_PATTERN = /^[^.]{1,128}(?:\.[^.]{1,128})?$/u;
 const PLUGIN_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,99}\/[a-z0-9][a-z0-9_-]{0,99}$/u;
 
 function assertPublicHttpsUrl(value: string, label: string): URL {
@@ -36,6 +45,51 @@ function assertPublicHttpsUrl(value: string, label: string): URL {
   return url;
 }
 
+function isPageCaptureSessionField(field: unknown): field is PageCaptureSessionField {
+  return (
+    isRecord(field) &&
+    Object.keys(field).every((key) => key === 'encoding' || key === 'storage') &&
+    typeof field.storage === 'string' &&
+    STORAGE_ENTRY_PATTERN.test(field.storage) &&
+    (field.encoding === undefined || field.encoding === 'p256RawPublicKey')
+  );
+}
+
+function assertPageCaptureSession(value: unknown): Record<string, PageCaptureSessionField> {
+  const fields = isRecord(value) ? Object.entries(value) : [];
+  if (
+    fields.length === 0 ||
+    fields.length > MAX_SESSION_FIELDS ||
+    fields.some(
+      ([name, field]) => !SESSION_FIELD_PATTERN.test(name) || !isPageCaptureSessionField(field),
+    )
+  ) {
+    throw new Error('Capture plugin page capture session is invalid.');
+  }
+  return Object.fromEntries(fields) as Record<string, PageCaptureSessionField>;
+}
+
+function assertPageCapture(value: unknown, origins: string[]): CapturePluginPageCapture {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).some((key) => key !== 'request' && key !== 'session') ||
+    !isRecord(value.request) ||
+    Object.keys(value.request).some((key) => key !== 'method' && key !== 'url') ||
+    (value.request.method !== 'GET' && value.request.method !== 'POST') ||
+    typeof value.request.url !== 'string'
+  ) {
+    throw new Error('Capture plugin page capture is invalid.');
+  }
+  const url = assertPublicHttpsUrl(value.request.url, 'Page capture URL');
+  if (!origins.includes(url.origin) || url.hash) {
+    throw new Error('Page capture URL must be on a declared plugin origin.');
+  }
+  return {
+    request: { method: value.request.method, url: url.href },
+    session: assertPageCaptureSession(value.session),
+  };
+}
+
 export function assertCapturePlugin(value: unknown, expectedId: string): PeerCapturePlugin {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error('Capture plugin must be a JSON object.');
@@ -50,6 +104,7 @@ export function assertCapturePlugin(value: unknown, expectedId: string): PeerCap
           'id',
           'name',
           'origins',
+          'pageCapture',
           'shouldSkipCloseTab',
           'source',
         ].includes(key),
@@ -105,6 +160,9 @@ export function assertCapturePlugin(value: unknown, expectedId: string): PeerCap
     id: plugin.id,
     name,
     origins,
+    ...(plugin.pageCapture !== undefined
+      ? { pageCapture: assertPageCapture(plugin.pageCapture, origins) }
+      : {}),
     shouldSkipCloseTab: plugin.shouldSkipCloseTab,
     source: plugin.source,
   };
@@ -129,6 +187,7 @@ export async function capturePluginDigest(plugin: PeerCapturePlugin): Promise<st
     id: plugin.id,
     name: plugin.name,
     origins: plugin.origins,
+    pageCapture: plugin.pageCapture,
     shouldSkipCloseTab: plugin.shouldSkipCloseTab,
     source: plugin.source,
   });
