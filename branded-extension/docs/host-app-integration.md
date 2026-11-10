@@ -62,14 +62,14 @@ const unsubscribe = peer.onMetadataMessage((data) => {
     // capture failed or was rejected by the user
     return;
   }
-  // Hand data.buyerTeeCapture / data.sarCredentialCapture to your backend
+  // Hand data.buyerTeeCapture to your backend
   // for verification, keyed by data.requestId.
 });
 
 peer.authenticate({
   platform: 'venmo',           // which payment platform
   actionType: 'transfer',      // which provider action
-  captureMode: 'buyerTee',     // 'buyerTee' | 'sellerCredential'
+  captureMode: 'buyerTee',     // sellerCredential requires a runtime not included here
   attestationServiceUrl: 'https://attestation-service.zkp2p.xyz',
   providerConfig: { /* see below */ },
 });
@@ -84,7 +84,7 @@ unsubscribe();
 | --- | --- | --- |
 | `platform` | `string` | Payment platform key. Required. |
 | `actionType` | `string` | Provider action key. Required. |
-| `captureMode` | `'buyerTee' \| 'sellerCredential'` | Which encrypted capture pipeline to run. |
+| `captureMode` | `'buyerTee' \| 'sellerCredential'` | Use `buyerTee` for encrypted payment capture. `sellerCredential` returns an unsupported-capability error before capture starts. |
 | `attestationServiceUrl` | `string \| null` | Defaults to the extension's configured attestation service. |
 | `attestationActionType` | `string \| null` | Optional override for the attested action. |
 | `providerConfig` | `ProviderSettings` | Optional. **If you pass it, pass a complete config** (see next section). If omitted, the extension fetches one from `${apiBaseUrl}/providers/<platform>/<actionType>.json`. |
@@ -123,8 +123,8 @@ extension is tuned for.
   confirmation before the result is shared with your page. A rejection arrives as
   a `data.errorMessage`, not a thrown error.
 - `metadata` is an array of payment rows; the encrypted capture payloads you submit to your
-  backend are in `buyerTeeCapture` / `sarCredentialCapture` depending on
-  `captureMode`.
+  backend are in `buyerTeeCapture`. Seller credential capture is unsupported
+  and returns `errorMessage`; `sarCredentialCapture` is never produced here.
 
 ## TypeScript
 

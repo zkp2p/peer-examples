@@ -60,10 +60,10 @@ branding is injected from `brand.config.json` at the edges only.
 | **Injected script** (page MAIN world) | `entries/Content/injectScript.ts` | Defines `window.peer`, relays page ⇄ content messages over `window.postMessage`. |
 | **Content script** (isolated world) | `entries/Content/index.ts`, `connectionApproval.ts`, `approvalPopup.ts` | Injects the page script, shows the connect/confirm approval UI, bridges page ⇄ background. |
 | **Background** (service worker) | `entries/Background/*` | Opens the auth tab, intercepts the right network requests (`webRequest`), runs the capture flows, drives the in-tab auth overlay. |
-| **Offscreen** (DOM-less document) | `entries/Offscreen/*` | Does capture encryption and credential bundling that need DOM crypto APIs but no UI. |
+| **Offscreen** (DOM-less document) | `entries/Offscreen/*` | Runs metadata extraction and request replay in an isolated document. |
 
 The shared **capture/metadata engine** lives in `utils/` (`metadataEngine.ts`,
-`offscreenHelpers.ts`, `buyerTeePaymentCapture.ts`, `sarCredentialBundle.ts`,
+`offscreenHelpers.ts`, `buyerTeePaymentCapture.ts`,
 typed message channels under `utils/types/messages/`).
 
 ## Capture flow (one run)
@@ -73,25 +73,28 @@ typed message channels under `utils/types/messages/`).
    forwards to background.
 3. Background resolves a **provider config**: either the complete one you passed
    inline, or one fetched from `${apiBaseUrl}/providers/<platform>/<actionType>.json`.
-4. Background opens the platform's auth tab and arms `webRequest` interceptors
-   for the URLs the provider config names.
+4. Background opens an empty auth tab, arms `webRequest` interceptors and
+   sign-in recovery, then navigates to the provider's authentication URL.
 5. When the matching request is seen, the captured material is handed to the
    offscreen document, **encrypted**, and submitted to the attestation service.
 6. The attested result is posted back to the page; your
    `onMetadataMessage` callback fires.
 
-## Two capture modes
+## Capture capabilities
 
-`captureMode` selects which encrypted capture payload is produced:
+Without `captureMode`, the JSON engine returns transaction metadata.
+`captureMode: 'buyerTee'` encrypts session material for buyer-side payment
+verification through the SDK. Both paths use the configured JSON template.
 
-- **`buyerTee`** — TEE session-material capture for a buyer-side payment.
-- **`sellerCredential`** — seller-credential bundle capture.
+`captureMode: 'sellerCredential'` is rejected before template fetch or tab
+creation. Seller credential capture requires a sandboxed capture-program hook;
+this example does not include that runtime. There are no embedded seller
+parsers or seller-bundle worker routes. Hosted capture JS and capture-program
+plugins are also outside this example's capabilities.
 
-Platform-specific parsing for `sellerCredential` lives in
-`entries/Background/sarCredentialCapture.ts`. The kit ships two worked examples
-there. **Adding a platform means adding a parser there plus a provider template**;
-it does not require touching the engine. The `buyerTee` path is fully
-provider-config driven.
+Cross-tab OAuth recovery lives in `entries/Background/signInResume.ts`. It
+correlates navigation only for an active capture and keeps that state in memory.
+See the README for callback-origin and host-permission prerequisites.
 
 ## Where branding stops and the protocol begins
 

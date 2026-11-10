@@ -1,3 +1,9 @@
+import {
+  handleSignInTabUpdated,
+  observeSignInNavigation,
+  stopSignIn,
+  watchSignIn,
+} from './signInResume';
 import { logger } from '@utils/logger';
 import { safeChromeRuntimeSendMessage, safeChromeTabsSendMessage } from '@utils/extensionMessaging';
 import { APP_WEB_URL, PROVIDER_TEMPLATE_API_ROOT } from '@utils/constants';
@@ -32,12 +38,6 @@ import {
   resolveBuyerTeeCaptureConfig,
   stageBuyerTeeCaptureForMetadata,
 } from './buyerTeeFlow';
-import {
-  clearSarCredentialCapture,
-  rememberSarCredentialCapture,
-  resolveSarCredentialCaptureConfig,
-  stageSarCredentialCaptureForMetadata,
-} from './sarCredentialFlow';
 import type { RequestLog } from './requestLog';
 import {
   injectSpinner,
@@ -108,7 +108,7 @@ function buildPatternList(providerConfig: ProviderSettings): string[] {
 function cleanupSession(authTabId: number): void {
   clearInterceptPatterns(authTabId);
   clearShouldReplayRequestInPage(authTabId);
-  clearSarCredentialCapture(authTabId);
+  stopSignIn(authTabId);
   clearBuyerTeeCapture(authTabId);
   deleteCacheByTabId(authTabId);
   sessionsByAuthTabId.delete(authTabId);
@@ -185,30 +185,14 @@ async function sendMetadataToOriginalTab(
       })
     : { capture: null, errorMessage: null, metadata: undefined };
 
-  const sarCredentialFlowResult = result.success
-    ? await stageSarCredentialCaptureForMetadata({
-        ensureOffscreenDocument,
-        request: result.request,
-        tabId: session.authTabId,
-      })
-    : { capture: null, errorMessage: null };
-  const shouldSuppressMetadata = Boolean(
-    buyerTeeCaptureResult.errorMessage ||
-    sarCredentialFlowResult.capture || sarCredentialFlowResult.errorMessage,
-  );
+  const shouldSuppressMetadata = Boolean(buyerTeeCaptureResult.errorMessage);
 
   if (sessionsByAuthTabId.get(session.authTabId) !== session) {
     return { sent: false, successful: false };
   }
 
   const errorMessage =
-    buyerTeeCaptureResult.errorMessage ??
-    sarCredentialFlowResult.errorMessage ??
-    (sarCredentialFlowResult.capture
-      ? undefined
-      : result.success
-        ? result.errorMessage
-        : result.error);
+    buyerTeeCaptureResult.errorMessage ?? (result.success ? result.errorMessage : result.error);
 
   session.hasSentMetadata = true;
 
@@ -225,7 +209,6 @@ async function sendMetadataToOriginalTab(
       errorMessage,
       buyerTeeCapture: buyerTeeCaptureResult.capture,
       requiresMetadataApproval: session.requiresMetadataApproval,
-      sarCredentialCapture: sarCredentialFlowResult.capture,
     },
   });
   return { sent: true, successful: result.success && !errorMessage };
@@ -315,7 +298,18 @@ async function handleOpenNewTabBackground(
   sendResponse: SendResponse,
 ): Promise<void> {
   try {
+    // JSON templates have no sellerCredential() hook. Never capture credentials
+    // with the retired provider-specific parser.
+    if (data.captureMode === 'sellerCredential') {
+      throw new Error(
+        'Seller credential capture requires a capture-program runtime; this extension supports JSON templates only.',
+      );
+    }
     const providerConfig = await resolveProviderConfig(data);
+    // Direct metadata templates need no replay URL. Only declared origins may
+    // receive the callback; never derive one from a request matcher.
+    const origins = [new URL(providerConfig.authLink).origin];
+    if (providerConfig.url) origins.push(new URL(providerConfig.url).origin);
     const patterns = buildPatternList(providerConfig);
     if (patterns.length === 0) {
       throw new Error('Provider template does not define metadata intercept patterns.');
@@ -325,16 +319,6 @@ async function handleOpenNewTabBackground(
     const originalTabId = senderTab?.id ?? activeTabs[0]?.id;
     if (!originalTabId) {
       throw new Error('Unable to resolve source tab for metadata capture.');
-    }
-
-    const sarCredentialCaptureConfig = resolveSarCredentialCaptureConfig({
-      attestationServiceUrl: data.attestationServiceUrl,
-      callerAddress: data.callerAddress,
-      captureMode: data.captureMode === 'sellerCredential' ? data.captureMode : undefined,
-      platform: data.platform,
-    });
-    if (sarCredentialCaptureConfig.error) {
-      throw new Error(sarCredentialCaptureConfig.error);
     }
 
     const buyerTeeCaptureConfig = resolveBuyerTeeCaptureConfig({
@@ -349,7 +333,7 @@ async function handleOpenNewTabBackground(
       throw new Error(buyerTeeCaptureConfig.error);
     }
 
-    const authTab = await chrome.tabs.create({ url: providerConfig.authLink, active: true });
+    const authTab = await chrome.tabs.create({ active: true });
     if (!authTab.id) {
       throw new Error('Unable to open provider authentication tab.');
     }
@@ -367,7 +351,6 @@ async function handleOpenNewTabBackground(
     sessionsByAuthTabId.set(authTab.id, session);
     setInterceptPatterns(patterns, authTab.id);
     setShouldReplayRequestInPage(!!providerConfig.metadata.shouldReplayRequestInPage, authTab.id);
-    rememberSarCredentialCapture(authTab.id, sarCredentialCaptureConfig.config);
     rememberBuyerTeeCapture(
       authTab.id,
       buyerTeeCaptureConfig.config
@@ -378,7 +361,31 @@ async function handleOpenNewTabBackground(
           }
         : null,
     );
-    setTimeout(() => startMetadataClickGuide(session), 500);
+    watchSignIn(authTab.id, {
+      incognito: authTab.incognito,
+      origins,
+      resume: () => {
+        if (
+          sessionsByAuthTabId.get(session.authTabId) !== session ||
+          session.hasSentMetadata ||
+          session.isExtracting
+        ) return;
+        void chrome.tabs.update(session.authTabId, { url: providerConfig.authLink }).catch(() => {
+          logger.warn('[Background] Could not resume capture after sign-in in another tab.');
+        });
+      },
+    });
+    try {
+      // Register interception and recovery before the provider starts navigating.
+      await chrome.tabs.update(authTab.id, { url: providerConfig.authLink });
+    } catch (error) {
+      cleanupSession(authTab.id);
+      void chrome.tabs.remove(authTab.id);
+      throw error;
+    }
+    setTimeout(() => {
+      if (sessionsByAuthTabId.get(session.authTabId) === session) startMetadataClickGuide(session);
+    }, 500);
 
     sendResponse({ success: true });
   } catch (error) {
@@ -395,9 +402,14 @@ chrome.webRequest.onSendHeaders.addListener(onSendHeaders, { urls: ['<all_urls>'
   'extraHeaders',
 ]);
 
-chrome.webRequest.onBeforeRequest.addListener(onBeforeRequest, { urls: ['<all_urls>'] }, [
-  'requestBody',
-]);
+chrome.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    observeSignInNavigation(details);
+    onBeforeRequest(details);
+  },
+  { urls: ['<all_urls>'] },
+  ['requestBody'],
+);
 
 chrome.webRequest.onResponseStarted.addListener(onResponseStarted, { urls: ['<all_urls>'] }, [
   'responseHeaders',
@@ -405,6 +417,7 @@ chrome.webRequest.onResponseStarted.addListener(onResponseStarted, { urls: ['<al
 ]);
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  stopSignIn(tabId);
   const session = sessionsByAuthTabId.get(tabId);
   if (!session) return;
 
@@ -414,7 +427,8 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   cleanupSession(tabId);
 });
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  handleSignInTabUpdated(tabId, changeInfo, tab);
   const session = sessionsByAuthTabId.get(tabId);
   if (!session) {
     return;

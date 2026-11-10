@@ -12,18 +12,17 @@ page covers the properties users and reviewers rely on.
 The capture-and-encryption pipeline is the security boundary. Leave it alone
 unless you are deliberately extending the protocol.
 
-- **Encryption happens in the offscreen document** (`entries/Offscreen/*`) using
-  the Peer SDK. Captured material is encrypted before it leaves the device. Do
-  not move encryption into the page, the content script, or a remote call, and
-  do not log decrypted material.
+- **Buyer encryption happens in the background** through the Peer SDK; the
+  offscreen document handles request replay and metadata extraction. Captured
+  material is encrypted before it leaves the device. Do not move encryption into
+  the page, the content script, or a remote call, and do not log decrypted material.
 - **Request matching is allow-listed.** Background only acts on requests that
   match the active provider config (`providerRequestMatcher.ts`); everything else
   is ignored. Do not widen the match to "capture everything."
 - **`webRequest` observes, it never blocks.** There is no `webRequestBlocking`
   and no request modification. Keep it that way.
-- The SDK encryption calls (`createEncryptedBuyerTeeSessionMaterial`,
-  `apiCreateSellerCredentialBundle`) are the protocol. Don't reimplement or
-  bypass them.
+- The SDK encryption call (`createEncryptedBuyerTeeSessionMaterial`) is the
+  protocol. Do not reimplement or bypass it.
 
 ## Stateless and tab-scoped
 
@@ -34,6 +33,17 @@ unless you are deliberately extending the protocol.
   `localStorage`, `sessionStorage`, or `indexedDB`.** Nothing about a run
   survives a browser restart. Keep it that way; persisting captured material or
   credentials would turn a transient capture into a stored secret.
+
+## Sign-in recovery
+
+- Correlate only an authorization-code request from an active capture tab with
+  one state and an HTTPS callback on the template's declared origins.
+- Never intercept or replay the callback tab. Resume only the original capture
+  after the matching callback moves on in the same normal/incognito context.
+- Keep correlation in memory and clear it at capture completion, cancellation,
+  tab closure or failed initial navigation. Never store callback codes or tokens.
+- JSON templates cannot capture seller credentials. Reject that mode before
+  opening a provider tab; never restore a provider-specific credential parser.
 
 ## No stored secrets, no keys
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { injectSpinner, startCountdownAndClose } from './authTabOverlay';
-import { clearSarCredentialCapture } from './sarCredentialFlow';
+import { clearBuyerTeeCapture } from './buyerTeeFlow';
 
 type MetadataRequest = {
   initiator: string | null;
@@ -18,7 +18,6 @@ const extensionMocks = vi.hoisted(() => ({
   metadataHandler: null as MetadataHandler | null,
   runtimeSendMessage: vi.fn(),
   stageBuyerCapture: vi.fn(),
-  stageSarCapture: vi.fn(),
   tabsSendMessage: vi.fn(),
 }));
 
@@ -58,12 +57,6 @@ vi.mock('./offscreenDocument', () => ({ ensureOffscreenDocument: vi.fn() }));
 vi.mock('./providerRequestMatcher', () => ({
   isProviderContextRequest: vi.fn(() => true),
 }));
-vi.mock('./sarCredentialFlow', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./sarCredentialFlow')>()),
-  clearSarCredentialCapture: vi.fn(),
-  rememberSarCredentialCapture: vi.fn(),
-  stageSarCredentialCaptureForMetadata: extensionMocks.stageSarCapture,
-}));
 
 const OPEN_NEW_TAB_BACKGROUND = 'open_new_tab_background';
 const SEND_METADATA_MESSAGES_RESPONSE = 'send_metadata_messages_response';
@@ -101,7 +94,7 @@ describe('Background capture session cancellation', () => {
         data: {
           actionType: 'transfer_cashapp',
           captureAttemptId,
-          captureMode: 'sellerCredential',
+          captureMode: 'buyerTee',
           platform: 'cashapp',
           ...(usePageSuppliedConfig
             ? {
@@ -136,10 +129,6 @@ describe('Background capture session cancellation', () => {
       errorMessage: null,
       metadata: undefined,
     });
-    extensionMocks.stageSarCapture.mockResolvedValue({
-      capture: null,
-      errorMessage: null,
-    });
     extensionMocks.tabsSendMessage.mockResolvedValue(undefined);
 
     vi.stubGlobal('chrome', {
@@ -157,7 +146,9 @@ describe('Background capture session cancellation', () => {
         },
       },
       tabs: {
-        create: vi.fn().mockResolvedValue({ id: 22 }),
+        create: vi.fn().mockResolvedValue({ id: 22, incognito: false }),
+        update: vi.fn().mockResolvedValue({ id: 22 }),
+        remove: vi.fn().mockResolvedValue(undefined),
         onRemoved: {
           addListener: vi.fn((listener: TabRemovedListener) => {
             tabRemovedListener = listener;
@@ -181,7 +172,7 @@ describe('Background capture session cancellation', () => {
     vi.unstubAllGlobals();
   });
 
-  it.each(['venmo', 'paypal', 'upi', 'wise'])(
+  it.each(['cashapp', 'venmo', 'paypal', 'upi', 'wise'])(
     'rejects %s seller capture without opening a tab or staging credentials',
     async (platform) => {
       const sendResponse = vi.fn();
@@ -200,11 +191,11 @@ describe('Background capture session cancellation', () => {
       await vi.waitFor(() => {
         expect(sendResponse).toHaveBeenCalledWith({
           success: false,
-          error: `Seller credential capture is not supported for ${platform}.`,
+          error: 'Seller credential capture requires a capture-program runtime; this extension supports JSON templates only.',
         });
       });
       expect(chrome.tabs.create).not.toHaveBeenCalled();
-      expect(extensionMocks.stageSarCapture).not.toHaveBeenCalled();
+      expect(chrome.tabs.query).not.toHaveBeenCalled();
       expect(extensionMocks.runtimeSendMessage).not.toHaveBeenCalled();
     },
   );
@@ -276,7 +267,7 @@ describe('Background capture session cancellation', () => {
   });
 
   it('does not post a staged response after the provider tab is closed', async () => {
-    const deferredSarCapture = createDeferred<{
+    const deferredBuyerCapture = createDeferred<{
       capture: null;
       errorMessage: null;
     }>();
@@ -285,7 +276,7 @@ describe('Background capture session cancellation', () => {
       requestId: 'request-1',
       metadata: [],
     });
-    extensionMocks.stageSarCapture.mockReturnValue(deferredSarCapture.promise);
+    extensionMocks.stageBuyerCapture.mockReturnValue(deferredBuyerCapture.promise);
     await openCaptureSession();
 
     const extractionPromise = Promise.resolve(
@@ -300,11 +291,11 @@ describe('Background capture session cancellation', () => {
       }),
     );
     await vi.waitFor(() => {
-      expect(extensionMocks.stageSarCapture).toHaveBeenCalled();
+      expect(extensionMocks.stageBuyerCapture).toHaveBeenCalled();
     });
 
     tabRemovedListener(22);
-    deferredSarCapture.resolve({ capture: null, errorMessage: null });
+    deferredBuyerCapture.resolve({ capture: null, errorMessage: null });
     await extractionPromise;
 
     const originalTabResponses = extensionMocks.tabsSendMessage.mock.calls.filter(
@@ -322,7 +313,6 @@ describe('Background capture session cancellation', () => {
     );
   });
   it.each([
-    { kind: 'seller', error: 'Seller credential creation failed.' },
     { kind: 'buyer', error: 'Buyer encryption failed.' },
     { kind: 'metadata', error: 'No transactions could be extracted.' },
     { kind: 'worker', error: 'Metadata extraction failed.' },
@@ -337,9 +327,6 @@ describe('Background capture session cancellation', () => {
             ...(kind === 'metadata' ? { errorMessage: error } : {}),
           },
     );
-    if (kind === 'seller') {
-      extensionMocks.stageSarCapture.mockResolvedValue({ capture: null, errorMessage: error });
-    }
     if (kind === 'buyer') {
       extensionMocks.stageBuyerCapture.mockResolvedValue({ capture: null, errorMessage: error });
     }
@@ -362,7 +349,7 @@ describe('Background capture session cancellation', () => {
     });
     expect(injectSpinner).not.toHaveBeenCalled();
     expect(startCountdownAndClose).not.toHaveBeenCalled();
-    expect(clearSarCredentialCapture).toHaveBeenCalledWith(22);
+    expect(clearBuyerTeeCapture).toHaveBeenCalledWith(22);
 
     // The failed attempt is terminal; repeated requests and tab closure cannot resend it.
     await extensionMocks.metadataHandler?.(request);
@@ -373,46 +360,65 @@ describe('Background capture session cancellation', () => {
     expect(responses).toHaveLength(1);
   });
 
-  it.each([null, 'Buyer encryption failed.'])(
-    'ignores metadata-only errors after seller capture while preserving buyer errors (%s)',
-    async (buyerError) => {
-      const capture = {
-        offchainId: 'seller-example',
-        credentialBundle: { platform: 'cashapp', encryptedBlob: 'test-sealed-bundle' },
-      };
-      extensionMocks.runtimeSendMessage.mockResolvedValue({
-        success: true,
-        requestId: 'request-1',
-        metadata: [{ ignored: 'metadata must stay suppressed' }],
-        errorMessage: 'No transactions could be extracted.',
-      });
-      extensionMocks.stageSarCapture.mockResolvedValue({ capture, errorMessage: null });
-      extensionMocks.stageBuyerCapture.mockResolvedValue({ capture: null, errorMessage: buyerError });
-      await openCaptureSession();
-      await extensionMocks.metadataHandler?.({
-        initiator: 'https://cashapp.example',
-        method: 'GET',
-        requestHeaders: [],
-        requestId: 'request-1',
-        tabId: 22,
-        type: 'xmlhttprequest',
-        url: 'https://cashapp.example/transactions',
-      });
-      await vi.advanceTimersByTimeAsync(2000);
+  it('rejects seller capture before fetching a template', async () => {
+    const fetchTemplate = vi.fn();
+    vi.stubGlobal('fetch', fetchTemplate);
+    const sendResponse = vi.fn();
+    runtimeMessageListener({
+      action: OPEN_NEW_TAB_BACKGROUND,
+      data: { captureMode: 'sellerCredential', platform: 'cashapp' },
+    }, { tab: { id: 11 } } as chrome.runtime.MessageSender, sendResponse);
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({
+      success: false,
+      error: 'Seller credential capture requires a capture-program runtime; this extension supports JSON templates only.',
+    }));
+    expect(fetchTemplate).not.toHaveBeenCalled();
+    expect(chrome.tabs.create).not.toHaveBeenCalled();
+  });
 
-      expect(extensionMocks.tabsSendMessage).toHaveBeenCalledWith(11, {
-        action: SEND_METADATA_MESSAGES_RESPONSE,
-        data: expect.objectContaining({
-          errorMessage: buyerError ?? undefined,
-          metadata: [],
-          sarCredentialCapture: capture,
-          requiresMetadataApproval: true,
-        }),
-      });
-      expect(injectSpinner).toHaveBeenCalledTimes(buyerError ? 0 : 1);
-      expect(startCountdownAndClose).toHaveBeenCalledTimes(buyerError ? 0 : 1);
-      expect(clearSarCredentialCapture).toHaveBeenCalledWith(22);
-    },
-  );
+  const completeSignIn = () => {
+    const observe = vi.mocked(chrome.webRequest.onBeforeRequest.addListener).mock.calls[0][0];
+    const update = vi.mocked(chrome.tabs.onUpdated.addListener).mock.calls[0][0];
+    const navigation = (tabId: number, url: string) => observe({
+      type: 'main_frame', frameId: 0, tabId, url,
+    } as chrome.webRequest.WebRequestBodyDetails);
+    navigation(22, 'https://login.example/authorize?response_type=code&state=attempt&redirect_uri=https%3A%2F%2Fcashapp.example%2Fcallback');
+    navigation(33, 'https://cashapp.example/callback?state=attempt&code=unused');
+    update(33, { url: 'https://cashapp.example/home' }, { incognito: false } as chrome.tabs.Tab);
+  };
 
+  it('arms recovery before navigation and resumes the same capture tab after cross-tab sign-in', async () => {
+    await openCaptureSession();
+    expect(chrome.tabs.create).toHaveBeenCalledWith({ active: true });
+    expect(chrome.tabs.update).toHaveBeenCalledWith(22, { url: 'https://cashapp.example/login' });
+    vi.mocked(chrome.tabs.update).mockClear();
+    completeSignIn();
+    expect(chrome.tabs.update).toHaveBeenCalledExactlyOnceWith(22, { url: 'https://cashapp.example/login' });
+    expect(chrome.tabs.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not resume a cancelled capture', async () => {
+    await openCaptureSession();
+    tabRemovedListener(22);
+    vi.mocked(chrome.tabs.update).mockClear();
+    completeSignIn();
+    expect(chrome.tabs.update).not.toHaveBeenCalled();
+  });
+
+  it('cleans up a capture when initial navigation fails', async () => {
+    vi.mocked(chrome.tabs.update).mockRejectedValueOnce(new Error('Navigation failed.'));
+    const sendResponse = vi.fn();
+    runtimeMessageListener({
+      action: OPEN_NEW_TAB_BACKGROUND,
+      data: {
+        platform: 'cashapp',
+        providerConfig: { authLink: 'https://cashapp.example/login', url: 'https://cashapp.example/transactions', metadata: { platform: 'cashapp', urlRegex: 'transactions' } },
+      },
+    }, { tab: { id: 11 } } as chrome.runtime.MessageSender, sendResponse);
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ success: false, error: 'Navigation failed.' }));
+    expect(chrome.tabs.remove).toHaveBeenCalledWith(22);
+    vi.mocked(chrome.tabs.update).mockClear();
+    completeSignIn();
+    expect(chrome.tabs.update).not.toHaveBeenCalled();
+  });
 });
