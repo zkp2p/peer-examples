@@ -9,7 +9,6 @@ import {
   resolveMetadataPayload,
 } from '@utils/metadataEngine';
 import { logger } from '@utils/logger';
-import { createSarCredentialBundle } from './sarCredentialBundle';
 
 async function extractMetadata(
   message: Extract<
@@ -61,18 +60,6 @@ chrome.runtime.onMessage.addListener(
     switch (message.action) {
       case BackgroundToOffscreenAction.EXTRACT_METADATA_OFFSCREEN:
         void extractMetadata(message).then(sendResponse);
-        return true;
-      case BackgroundToOffscreenAction.CREATE_SAR_CREDENTIAL_BUNDLE_OFFSCREEN:
-        void createSarCredentialBundle(message.data)
-          .then((bundle) => sendResponse({ bundle, success: true }))
-          .catch((error) => {
-            logger.error('[Offscreen] SAR credential bundle creation failed:', error);
-            sendResponse({
-              error:
-                error instanceof Error ? error.message : 'SAR credential bundle creation failed.',
-              success: false,
-            });
-          });
         return true;
       default:
         return false;

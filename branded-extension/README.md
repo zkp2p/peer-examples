@@ -27,10 +27,30 @@ the architecture.
 
 ## Seller credential capture
 
-This example supports `captureMode: 'sellerCredential'` for Cash App only.
-Venmo, PayPal, UPI, and other unsupported seller platforms are rejected before
-opening a provider tab. Buyer and identity capture remain template-driven.
-Client-side OAuth connections are outside this extension example.
+This example uses the JSON provider-template engine. It rejects
+`captureMode: 'sellerCredential'` before fetching a template or opening a
+provider tab, including Cash App. Seller credentials require a sandboxed capture
+program with a `sellerCredential()` hook; that runtime is not implemented here.
+The old embedded Cash App parser has been removed. Client-side OAuth connections
+are outside this extension example.
+
+Buyer and identity capture continue to use JSON templates. Hosted capture JS,
+additional-account fetches and capture-program plugins are not supported. Do not
+add provider-specific seller parsers to work around the missing runtime.
+
+## Sign-in completed in another tab
+
+If a provider's email link completes OAuth sign-in in another tab, the extension
+resumes the original capture tab at its configured authentication URL. Recovery
+requires an authorization-code request from that capture tab, exactly one OAuth
+state, and an HTTPS callback on an origin declared by the template's `authLink`
+or `url`. The callback must match that state and then move to another path on
+its origin in the same normal/incognito context. A capture is resumed only once
+per sign-in attempt and never after cancellation or completion.
+
+The callback tab is only observed for navigation; its authorization code is not
+stored, replayed or sent to the app. The configured host permissions must cover
+the provider's authorization and callback origins for this observation to work.
 
 ## Rebrand
 
