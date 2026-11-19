@@ -1,13 +1,13 @@
 # Concept: the `window.peer` interface
 
 This extension puts one object on the page: `window.peer`. It is the
-**protocol global** for privacy-preserving payment verification. Any web page
+**protocol global** for privacy-preserving payment verification. A page on a configured app origin
 can feature-detect it and drive a verification flow without knowing which
 branded extension is installed.
 
 ## The interface
 
-The injected script defines a frozen `window.peer` (see
+The injected script defines `window.peer` as a read-only property (see
 `src/entries/Content/injectScript.ts`):
 
 ```ts
@@ -31,7 +31,7 @@ interface Peer {
     providerConfig?: ProviderSettings; // pass a COMPLETE inline config
   }): void;
 
-  // Subscribe to verification results. Returns an unsubscribe function.
+  // Subscribe to capture results. Returns an unsubscribe function.
   onMetadataMessage(cb: (data: MetadataMessagePayload) => void): () => void;
 
   // Opt-in debug logging.
@@ -59,8 +59,8 @@ branding is injected from `brand.config.json` at the edges only.
 | --- | --- | --- |
 | **Injected script** (page MAIN world) | `entries/Content/injectScript.ts` | Defines `window.peer`, relays page ⇄ content messages over `window.postMessage`. |
 | **Content script** (isolated world) | `entries/Content/index.ts`, `connectionApproval.ts`, `approvalPopup.ts` | Injects the page script, shows the connect/confirm approval UI, bridges page ⇄ background. |
-| **Background** (service worker) | `entries/Background/*` | Opens the auth tab, intercepts the right network requests (`webRequest`), runs the capture flows, drives the in-tab auth overlay. |
-| **Offscreen** (DOM-less document) | `entries/Offscreen/*` | Does capture encryption and credential bundling that need DOM crypto APIs but no UI. |
+| **Background** (service worker) | `entries/Background/*` | Opens the auth tab, intercepts the right network requests (`webRequest`), encrypts buyer session material, drives the in-tab auth overlay. |
+| **Offscreen** (hidden document) | `entries/Offscreen/*` | Extracts metadata and creates seller credential bundles. |
 
 The shared **capture/metadata engine** lives in `utils/` (`metadataEngine.ts`,
 `offscreenHelpers.ts`, `buyerTeePaymentCapture.ts`, `sarCredentialBundle.ts`,
@@ -75,10 +75,8 @@ typed message channels under `utils/types/messages/`).
    inline, or one fetched from `${apiBaseUrl}/providers/<platform>/<actionType>.json`.
 4. Background opens the platform's auth tab and arms `webRequest` interceptors
    for the URLs the provider config names.
-5. When the matching request is seen, the captured material is handed to the
-   offscreen document, **encrypted**, and submitted to the attestation service.
-6. The attested result is posted back to the page; your
-   `onMetadataMessage` callback fires.
+5. For a buyer payment, the service worker encrypts the session to the attestation service. For seller capture, the offscreen document obtains a credential bundle.
+6. The page receives the capture in its `onMetadataMessage` callback. The host app selects the buyer's payment and submits it for verification, or registers the seller's credential bundle.
 
 ## Two capture modes
 
@@ -88,9 +86,8 @@ typed message channels under `utils/types/messages/`).
 - **`sellerCredential`** — seller-credential bundle capture.
 
 Platform-specific parsing for `sellerCredential` lives in
-`entries/Background/sarCredentialCapture.ts`. The kit ships two worked examples
-there. **Adding a platform means adding a parser there plus a provider template**;
-it does not require touching the engine. The `buyerTee` path is fully
+`entries/Background/sarCredentialCapture.ts`. The example supports Cash App seller credentials. The seller flow checks the
+platform before opening the provider tab. The `buyerTee` path is fully
 provider-config driven.
 
 ## Where branding stops and the protocol begins

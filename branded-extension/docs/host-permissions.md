@@ -54,8 +54,7 @@ generated manifest (it will be overwritten on the next rebrand).
 
 ## A note on `webRequest`
 
-The extension uses the `webRequest` permission to observe the responses that
-  carry payment session material during an auth run. It observes; it does not block (no
+The extension uses the `webRequest` permission to observe matching payment-provider requests during an auth run. It observes; it does not block (no
 `webRequestBlocking`). Captured requests are matched against the patterns in the
 active provider config and discarded otherwise. See
 `entries/Background/providerRequestMatcher.ts`.

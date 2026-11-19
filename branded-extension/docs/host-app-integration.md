@@ -68,14 +68,12 @@ const unsubscribe = peer.onMetadataMessage((data) => {
 
 peer.authenticate({
   platform: 'venmo',           // which payment platform
-  actionType: 'transfer',      // which provider action
+  actionType: 'transfer_venmo',      // which provider action
   captureMode: 'buyerTee',     // 'buyerTee' | 'sellerCredential'
   attestationServiceUrl: 'https://attestation-service.zkp2p.xyz',
-  providerConfig: { /* see below */ },
 });
 
-// later:
-unsubscribe();
+// Call unsubscribe() when the flow finishes or your component unmounts.
 ```
 
 ### `authenticate(params)`
@@ -85,7 +83,7 @@ unsubscribe();
 | `platform` | `string` | Payment platform key. Required. |
 | `actionType` | `string` | Provider action key. Required. |
 | `captureMode` | `'buyerTee' \| 'sellerCredential'` | Which encrypted capture pipeline to run. |
-| `attestationServiceUrl` | `string \| null` | Defaults to the extension's configured attestation service. |
+| `attestationServiceUrl` | `string \| null` | Required for buyer capture. Seller capture defaults to the configured attestation service. |
 | `attestationActionType` | `string \| null` | Optional override for the attested action. |
 | `providerConfig` | `ProviderSettings` | Optional. **If you pass it, pass a complete config** (see next section). If omitted, the extension fetches one from `${apiBaseUrl}/providers/<platform>/<actionType>.json`. |
 

@@ -56,7 +56,7 @@ Reviewers will ask why you need each permission. The honest answers:
   original tab.
 - **`scripting`** — inject the capture click-guide and the success overlay into
   the auth tab.
-- **`offscreen`** — run capture encryption and credential bundling in a DOM-less document.
+- **`offscreen`** — extract payment metadata and create seller credential bundles in a hidden document.
 - **Host permissions** — only your supported payment platforms, your app
   origins, and the API + attestation endpoints. See
   [`host-permissions.md`](host-permissions.md).
@@ -70,9 +70,8 @@ In the dashboard's privacy section, the truthful posture for this kit:
 
 - **Does not collect** authentication information, personal communications,
   location, web history, or user activity for the extension's own purposes.
-- Captured payment material is **encrypted on-device** and submitted to the
-  attestation service to produce a verification result; it is not sold and not
-  used for tracking.
+- The host page receives payment rows and **locally encrypted** buyer session
+  material for verification. Seller capture returns a credential bundle and seller identifier.
 - The extension uses **no analytics or telemetry**.
 
 Make sure these statements match what you actually ship. See

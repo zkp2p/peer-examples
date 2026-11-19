@@ -19,28 +19,29 @@ your data.
 
 The Extension helps you prove a payment to {{WEBSITE}} without sharing your
 banking credentials. It processes payment data **locally on your device**,
-encrypts the session material before transmission, and shares only the resulting
-verification with {{WEBSITE}}. We do not sell your data and we do not track you.
+encrypts buyer session material for {{ATTESTATION_SERVICE_URL}}, and returns
+it with payment details to {{WEBSITE}} for verification. We do not sell your data and we do not track you.
 
 ## What the Extension accesses
 
 To verify a payment you initiate, the Extension:
 
 - Opens your payment provider in a browser tab and observes the specific network
-  responses that contain the transaction you are verifying.
+  requests used to identify the payment.
 - Encrypts the relevant session material **on your device** before any
   transmission.
-- Submits the encrypted material to the attestation service at
-  {{ATTESTATION_SERVICE_URL}} to produce a verification result.
-- Returns that result to {{WEBSITE}}.
+- Returns payment rows and the encrypted session to {{WEBSITE}}, which submits
+  the selected payment for verification by {{ATTESTATION_SERVICE_URL}}.
+- For seller credential capture, obtains an encrypted credential bundle from
+  the service and returns the bundle and seller identifier to {{WEBSITE}}.
 
 The Extension only runs this process on the sites it supports
 ({{SUPPORTED_PLATFORMS}}) and your application origin ({{WEBSITE}}).
 
 ## What we do NOT do
 
-- We do **not** collect or store your passwords, cookies, or login sessions.
-  These never leave your device.
+- The host page receives encrypted session material. Your plaintext login
+  session is not included in the capture result.
 - We do **not** persist your payment data. A verification run is held in memory
   for the duration of that run and discarded afterward; the Extension uses no
   local storage and nothing survives a browser restart.
@@ -50,15 +51,16 @@ The Extension only runs this process on the sites it supports
 
 ## Data we transmit
 
-The only data the Extension transmits is the **encrypted session material** needed
-to produce a verification, sent to {{ATTESTATION_SERVICE_URL}}, and the resulting
-verification shared with {{WEBSITE}}. No other endpoints receive your data.
+Payment rows shared with {{WEBSITE}} can include amounts, dates, recipients and
+payment identifiers. The encrypted buyer session is intended for
+{{ATTESTATION_SERVICE_URL}}. Seller credential capture shares a credential
+bundle and seller identifier with {{WEBSITE}}.
 
 ## Permissions
 
 The Extension requests the minimum permissions needed to perform verification:
 observing payment-provider responses, opening and returning tabs, injecting the
-on-page capture helper, and running encryption in an isolated document. See our
+on-page capture helper, and extracting metadata and preparing seller credentials in an isolated document. See our
 store listing for the per-permission justification.
 
 ## Your choices
