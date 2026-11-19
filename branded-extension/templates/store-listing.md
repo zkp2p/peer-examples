@@ -25,13 +25,12 @@ Productivity (or Finance, if available in your locale)
 your banking login or sharing screenshots.
 
 When {{WEBSITE}} asks you to verify a payment, {{EXTENSION_NAME}} opens your
-payment provider, helps you find the right transaction, and creates a
-encrypted verification payload on your own device. Only the verified result is
-shared back with {{WEBSITE}}. Your credentials never leave your browser.
+payment provider, helps you find the right transaction, and encrypts the buyer session on your device. {{WEBSITE}} receives the
+payment details and encrypted session to verify the selected payment.
 
 **Why it's safe**
 
-- Your passwords, cookies, and session data never leave your device.
+- The host page receives no plaintext login credentials.
 - Proof material is encrypted locally before anything is sent.
 - No analytics, no tracking, no selling your data.
 - Works only on the sites it needs: {{SUPPORTED_PLATFORMS}} and {{WEBSITE}}.
@@ -41,7 +40,7 @@ shared back with {{WEBSITE}}. Your credentials never leave your browser.
 1. {{WEBSITE}} asks you to verify a payment.
 2. {{EXTENSION_NAME}} opens your payment provider in a new tab.
 3. You confirm the transaction; the extension captures and encrypts the session material.
-4. The verified result is returned to {{WEBSITE}}.
+4. {{WEBSITE}} selects the payment and submits it for verification.
 
 Built on the open Peer protocol for privacy-preserving payment verification.
 

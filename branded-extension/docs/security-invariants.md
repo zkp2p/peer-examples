@@ -12,10 +12,9 @@ page covers the properties users and reviewers rely on.
 The capture-and-encryption pipeline is the security boundary. Leave it alone
 unless you are deliberately extending the protocol.
 
-- **Encryption happens in the offscreen document** (`entries/Offscreen/*`) using
-  the Peer SDK. Captured material is encrypted before it leaves the device. Do
-  not move encryption into the page, the content script, or a remote call, and
-  do not log decrypted material.
+- **Encrypt inside the extension.** The service worker encrypts buyer session
+  material with the Peer SDK. The offscreen document creates seller credential
+  bundles. Keep plaintext session material out of page messages and logs.
 - **Request matching is allow-listed.** Background only acts on requests that
   match the active provider config (`providerRequestMatcher.ts`); everything else
   is ignored. Do not widen the match to "capture everything."
@@ -46,15 +45,15 @@ unless you are deliberately extending the protocol.
 
 ## No telemetry
 
-- The extension ships **no analytics, tracking, or telemetry.** `logger` only
-  writes to the console, and only in development builds.
+- The extension ships **no analytics, tracking, or telemetry.** Internal logs are development-only. The page can enable the injected
+  interface’s console logger with `peer.logger.enable()`.
 - The `data-peer-vendor` page attribute exists so your *host app* can record
   which extension served a session. It is set on the page, not phoned home by
   the extension.
 - The only network calls the extension makes are: fetching the **provider
   template** from your API, **replaying the captured request** when a provider
-  flow requires it, and submitting encrypted session material to the attestation
-  service. If you add another endpoint, justify it in your privacy policy and
+  flow requires it, and calling the attestation service for buyer encryption
+  or seller credential bundling. The host app submits the buyer capture. If you add another endpoint, justify it in your privacy policy and
   store listing.
 
 ## Permissions stay minimal
@@ -84,7 +83,7 @@ attribute *name* is not.
 - [ ] `host_permissions` in `build/manifest.json` contains only your domains +
       the API/attestation origins.
 - [ ] No new entries in `permissions`.
-- [ ] No `chrome.storage` / `localStorage` / network calls added beyond the two
-      above.
+- [ ] No `chrome.storage` / `localStorage` / network calls added outside the flows
+      described above.
 - [ ] No secrets, keys, or non-public endpoints committed.
 - [ ] `npm run typecheck && npm run test` pass.

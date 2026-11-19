@@ -10,12 +10,12 @@
 
 {{EXTENSION_NAME}} has one purpose: to let a user prove a payment to
 {{WEBSITE}} in a privacy-preserving way, by capturing and encrypting session
-material on the user's device and returning only the verification result.
+material on the user's device and returning payment rows and encrypted session material to the host for verification.
 
 ## `webRequest`
 
 Used to observe (not block or modify) the specific payment-provider network
-responses that contain the transaction the user is verifying. The Extension acts
+requests used to identify the transaction the user is verifying. The Extension acts
 only on requests matching the active provider configuration and ignores all
 others. It does not use `webRequestBlocking`.
 
@@ -33,7 +33,7 @@ verification run.
 
 ## `offscreen`
 
-Used to run capture encryption and credential bundling in a DOM-less offscreen
+Used to extract payment metadata and create seller credential bundles in a hidden
 document. Encryption is performed on-device before any session material is
 transmitted.
 
@@ -46,15 +46,15 @@ The Extension requests access only to:
 - your application origin ({{WEBSITE}}), where the `window.peer` interface is
   exposed to the page;
 - the API and attestation endpoints ({{API_BASE_URL}}, {{ATTESTATION_SERVICE_URL}})
-  to fetch verification configuration and submit encrypted session material.
+  to retrieve provider templates and enclave information, and create seller credential bundles.
 
 It does not request broad host access (no `<all_urls>`).
 
 ## Remote code
 
 The Extension executes **no remote code**. All logic is bundled in the package.
-It fetches provider configuration data (JSON) and submits encrypted session
-material, but never loads or evaluates external scripts.
+It fetches provider configuration data (JSON) and calls the attestation
+service, but never loads or evaluates external scripts.
 
 ## Data usage certification
 
