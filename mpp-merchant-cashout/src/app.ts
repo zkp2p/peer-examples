@@ -99,8 +99,14 @@ export function createApp(options: AppOptions) {
         amountUsdc: formatUsdc(amount),
         note: 'Unsigned only. Persist settlement, reservation, and confirmed cash-out state in production.',
         prepared: {
-          ...prepared,
-          txs: prepared.txs.map((tx) => ({ ...tx, value: tx.value.toString() })),
+          register: prepared.register,
+          steps: prepared.steps,
+          txs: prepared.txs.map(({ chainId, data, to, value }) => ({
+            chainId,
+            data,
+            to,
+            value: value.toString(),
+          })),
         },
         revenue: formatSnapshot(revenue),
       })

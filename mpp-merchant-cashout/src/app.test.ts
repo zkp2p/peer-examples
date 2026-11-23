@@ -7,14 +7,24 @@ import { createApp } from './app.js'
 
 test('prepares one unsigned plan from confirmed MPP revenue', async () => {
   const amounts: bigint[] = []
+  // The SDK's createDeposit transaction also carries its ABI and bigint args.
+  const createDeposit = {
+    abi: [],
+    args: [usdc('10')],
+    chainId: 8453,
+    data: '0x' as const,
+    functionName: 'createDeposit',
+    to: '0x0000000000000000000000000000000000000002' as const,
+    value: 0n,
+  }
   const { adminApp, revenue } = createApp({
     sell: {
       async prepare(input) {
         amounts.push(input.amount)
         return {
           register: { hashedOnchainIds: [] },
-          steps: [{ kind: 'approve', description: 'Approve USDC' }],
-          txs: [{ chainId: 8453, data: '0x', to: '0x0000000000000000000000000000000000000002', value: 0n }],
+          steps: [{ kind: 'createDeposit', description: 'Create the sale' }],
+          txs: [createDeposit],
         }
       },
     },
