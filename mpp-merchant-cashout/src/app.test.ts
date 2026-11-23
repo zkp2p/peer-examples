@@ -1,22 +1,20 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { usdc } from '@zkp2p/cash'
+import { PeerError, usdc } from '@zkp2p/sdk'
 
 import { createApp } from './app.js'
 
 test('prepares one unsigned plan from confirmed MPP revenue', async () => {
   const amounts: bigint[] = []
   const { adminApp, revenue } = createApp({
-    cash: {
+    sell: {
       async prepare(input) {
         amounts.push(input.amount)
         return {
-          accessPolicyRequired: false,
-          accessPolicyPaymentMethods: [],
           register: { hashedOnchainIds: [] },
-          steps: [],
-          txs: [],
+          steps: [{ kind: 'approve', description: 'Approve USDC' }],
+          txs: [{ chainId: 8453, data: '0x', to: '0x0000000000000000000000000000000000000002', value: 0n }],
         }
       },
     },
@@ -35,7 +33,11 @@ test('prepares one unsigned plan from confirmed MPP revenue', async () => {
 
   assert.equal(response.status, 200)
   assert.deepEqual(amounts, [usdc('10')])
-  assert.equal((await response.json()).revenue.availableUsdc, '0')
+  const body = await response.json()
+  assert.equal(body.revenue.availableUsdc, '0')
+  assert.deepEqual(body.prepared.txs, [
+    { chainId: 8453, data: '0x', to: '0x0000000000000000000000000000000000000002', value: '0' },
+  ])
 
   const duplicate = await adminApp.request('http://localhost/cashout', {
     body: JSON.stringify({}),
@@ -45,17 +47,16 @@ test('prepares one unsigned plan from confirmed MPP revenue', async () => {
   assert.equal(duplicate.status, 409)
 })
 
-test('releases revenue when a payout needs an unsupported follow-up', async () => {
+test('releases revenue when the SDK rejects the payout', async () => {
   const { adminApp, revenue } = createApp({
-    cash: {
+    sell: {
       async prepare() {
-        return {
-          accessPolicyRequired: true,
-          accessPolicyPaymentMethods: [],
-          register: { hashedOnchainIds: [] },
-          steps: [],
-          txs: [],
-        }
+        throw new PeerError({
+          code: 'PAYEE_NOT_FOUND',
+          message: 'Payee not found',
+          remediation: 'Check the payee handle',
+          retryable: false,
+        })
       },
     },
     cashout: { currency: 'USD', payee: 'merchant', platform: 'venmo' },
@@ -72,5 +73,6 @@ test('releases revenue when a payout needs an unsupported follow-up', async () =
   })
 
   assert.equal(response.status, 400)
+  assert.equal((await response.json()).error.code, 'PAYEE_NOT_FOUND')
   assert.equal(revenue.snapshot().available, usdc('10'))
 })

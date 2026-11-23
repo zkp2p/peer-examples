@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 
-import type { CurrencyType } from '@zkp2p/cash'
+import type { CurrencyType } from '@zkp2p/sdk'
 import { NodeListener, Request as ServerRequest } from 'mppx/server'
 
 import { createApp } from './app.js'
@@ -34,7 +34,7 @@ serve(publicApp.fetch, Number(process.env.PORT ?? 5173), '0.0.0.0')
 serve(adminApp.fetch, Number(process.env.ADMIN_PORT ?? 5174), '127.0.0.1')
 
 console.log(`MPP merchant API: http://localhost:${process.env.PORT ?? 5173}/api/report`)
-console.log(`Peer Cash planner: http://127.0.0.1:${process.env.ADMIN_PORT ?? 5174}/cashout`)
+console.log(`Peer cash-out planner: http://127.0.0.1:${process.env.ADMIN_PORT ?? 5174}/cashout`)
 
 function serve(
   fetch: (request: Request) => Response | Promise<Response>,
