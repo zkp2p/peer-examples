@@ -1,13 +1,18 @@
-# MPP revenue to Peer Cash
+# MPP revenue to a Peer cash-out
 
 A merchant server that accepts Base USDC over MPP, counts confirmed settlements,
-and prepares an unsigned Peer Cash plan once revenue reaches a threshold.
+and prepares an unsigned Peer cash-out plan once revenue reaches a threshold.
 
-MPP handles the incoming machine payment. Peer Cash handles a separate merchant
-operation *after* settlement: moving Base USDC out of the merchant-controlled
-recipient wallet into a fiat cash-out order. Those are two different jobs, and
-this example keeps the boundary explicit. Peer Cash is never a payer-side
-payment method here.
+MPP handles the incoming machine payment. Peer handles a separate merchant
+operation *after* settlement: `peer.sell.prepare()` from
+[`@zkp2p/sdk`](https://www.npmjs.com/package/@zkp2p/sdk) plans the move of Base
+USDC out of the merchant-controlled recipient wallet into a fiat cash-out
+order. Those are two different jobs, and this example keeps the boundary
+explicit. Peer is never a payer-side payment method here.
+
+The example pins `@zkp2p/sdk` `0.16.0-rc.1` (npm dist-tag `rc`), the first
+release with `createPeer()` and `peer.sell`. Existing `@zkp2p/cash`
+integrations keep working, but new ones should start with `@zkp2p/sdk`.
 
 ## Custody and safety boundaries
 
@@ -22,9 +27,9 @@ The point of the example is where it refuses to go, so read this part first.
 - Only successful EVM settlement hooks increase tracked revenue, and receipt
   references are deduplicated, so one payment cannot be counted twice.
 - Planned amounts are reserved before the asynchronous prepare call, so a second
-  request cannot spend the same revenue.
-- Payout platforms that need a post-deposit access-policy transaction fail
-  closed with a remediation message rather than half-completing.
+  request cannot spend the same revenue. A rejected prepare, such as
+  `PAYEE_NOT_FOUND` for a handle that does not exist on the platform, releases
+  the reservation and returns the SDK's `PeerError` as JSON.
 
 ## Setup
 
@@ -43,7 +48,7 @@ npm run dev
 ```
 
 Use a facilitator that supports Base mainnet USDC. `MPPX_RECIPIENT` must be the
-merchant-controlled Base wallet that will sign any Peer Cash transactions.
+merchant-controlled Base wallet that will sign any cash-out transactions.
 
 ## Payment and cash-out flow
 
@@ -68,7 +73,8 @@ curl -X POST http://127.0.0.1:5174/cashout \
 ```
 
 Pass `{"amountUsdc":"5.25"}` to prepare a smaller amount. The response contains
-unsigned transactions and their step descriptions. Review them, then sign and
+unsigned transactions (with `value` as a decimal string) and their step
+descriptions. There is no follow-up access-policy transaction. Review them, then sign and
 submit with the recipient wallet.
 
 ## What a production host must add
@@ -94,4 +100,5 @@ prefer to keep vendor-specific examples out of that repo and
 [invited us to host it in our own](https://github.com/wevm/mppx/pull/798#issuecomment-5295353420),
 so it lives here. It is unchanged in behaviour; it drops the monorepo-only
 tsconfig path mapping, targets published `mppx` and `@zkp2p/cash` releases, and
-uses npm to match the rest of this repo.
+uses npm to match the rest of this repo. It has since moved from `@zkp2p/cash`
+to `peer.sell` in `@zkp2p/sdk`.

@@ -1,5 +1,5 @@
-import { createCashClient, formatUsdc, isCashError, prepareResultToJson, usdc } from '@zkp2p/cash'
-import type { CashClient, CurrencyType } from '@zkp2p/cash'
+import { createPeer, formatUsdc, isPeerError, usdc } from '@zkp2p/sdk'
+import type { CurrencyType, PeerSell } from '@zkp2p/sdk'
 import { Hono } from 'hono'
 import { Mppx, evm } from 'mppx/server'
 import type { Facilitator } from 'mppx/x402'
@@ -7,7 +7,7 @@ import type { Facilitator } from 'mppx/x402'
 import { RevenueTracker } from './revenue.js'
 
 export type AppOptions = {
-  cash?: Pick<CashClient, 'prepare'> | undefined
+  sell?: Pick<PeerSell, 'prepare'> | undefined
   cashout: {
     currency: CurrencyType
     payee: string
@@ -19,9 +19,9 @@ export type AppOptions = {
   secretKey: string
 }
 
-/** Creates an MPP merchant API and a localhost-only Peer Cash planner. */
+/** Creates an MPP merchant API and a localhost-only Peer cash-out planner. */
 export function createApp(options: AppOptions) {
-  const cash = options.cash ?? createCashClient({ environment: 'production' })
+  const sell = options.sell ?? createPeer({ environment: 'production' }).sell
   const revenue = new RevenueTracker(usdc(options.cashout.thresholdUsdc ?? '10'))
 
   const payments = Mppx.create({
@@ -86,7 +86,7 @@ export function createApp(options: AppOptions) {
       revenue.reserve(amount)
       reserved = true
 
-      const prepared = await cash.prepare({
+      const prepared = await sell.prepare({
         amount,
         receive: {
           currency: options.cashout.currency,
@@ -95,29 +95,24 @@ export function createApp(options: AppOptions) {
         },
       })
 
-      if (prepared.accessPolicyRequired) {
-        revenue.release(amount)
-        reserved = false
-        return c.json(
-          {
-            error:
-              'this minimal planner does not automate the post-deposit access-policy transaction required by this payout platform',
-            remediation:
-              'use an unrestricted platform or extend the host to finalize the confirmed deposit and call prepareAccessPolicy',
-          },
-          400,
-        )
-      }
-
       return c.json({
         amountUsdc: formatUsdc(amount),
         note: 'Unsigned only. Persist settlement, reservation, and confirmed cash-out state in production.',
-        prepared: prepareResultToJson(prepared),
+        prepared: {
+          register: prepared.register,
+          steps: prepared.steps,
+          txs: prepared.txs.map(({ chainId, data, to, value }) => ({
+            chainId,
+            data,
+            to,
+            value: value.toString(),
+          })),
+        },
         revenue: formatSnapshot(revenue),
       })
     } catch (error) {
       if (reserved) revenue.release(amount)
-      if (isCashError(error)) return c.json({ error: error.toJSON() }, 400)
+      if (isPeerError(error)) return c.json({ error: error.toJSON() }, 400)
       if (error instanceof CashoutRequestError) return c.json({ error: error.message }, 400)
       console.error('Unable to prepare Peer cash-out', error)
       return c.json({ error: 'Unable to prepare Peer cash-out' }, 500)
