@@ -11,8 +11,8 @@ order. Those are two different jobs, and this example keeps the boundary
 explicit. Peer is never a payer-side payment method here.
 
 The example pins `@zkp2p/sdk` `0.16.0-rc.1` (npm dist-tag `rc`), the first
-release with `createPeer()` and `peer.sell`. Existing `@zkp2p/cash`
-integrations keep working, but new ones should start with `@zkp2p/sdk`.
+release with `createPeer()` and `peer.sell`. To move an existing integration,
+follow the [migration guide](https://docs.peer.xyz/developer/sell/migrate-from-cash).
 
 ## Custody and safety boundaries
 
@@ -99,6 +99,5 @@ This example was originally offered upstream as
 prefer to keep vendor-specific examples out of that repo and
 [invited us to host it in our own](https://github.com/wevm/mppx/pull/798#issuecomment-5295353420),
 so it lives here. It is unchanged in behaviour; it drops the monorepo-only
-tsconfig path mapping, targets published `mppx` and `@zkp2p/cash` releases, and
-uses npm to match the rest of this repo. It has since moved from `@zkp2p/cash`
-to `peer.sell` in `@zkp2p/sdk`.
+tsconfig path mapping, targets published `mppx` releases, and uses npm to match
+the rest of this repo. It has since moved to `peer.sell` in `@zkp2p/sdk`.
