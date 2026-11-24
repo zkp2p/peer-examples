@@ -10,8 +10,8 @@ USDC out of the merchant-controlled recipient wallet into a fiat cash-out
 order. Those are two different jobs, and this example keeps the boundary
 explicit. Peer is never a payer-side payment method here.
 
-The example pins `@zkp2p/sdk` `0.16.0-rc.1` (npm dist-tag `rc`), the first
-release with `createPeer()` and `peer.sell`. To move an existing integration,
+The example uses `@zkp2p/sdk@0.16.0` for `createPeer()` and `peer.sell`.
+To move an existing integration,
 follow the [migration guide](https://docs.peer.xyz/developer/sell/migrate-from-cash).
 
 ## Custody and safety boundaries
